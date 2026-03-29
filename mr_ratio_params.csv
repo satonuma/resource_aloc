@@ -1,0 +1,5 @@
+parameter,value,description
+base_mr_ratio,0.65,全品目の基準MR比率
+slope,0.20,FTE相対値1単位あたりのMR比率変化量
+min_mr_ratio,0.40,MR比率の下限
+max_mr_ratio,0.90,MR比率の上限

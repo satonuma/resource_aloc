@@ -1,0 +1,19 @@
+product_id,fc_ratio,note
+GLI,1.00,PDT主力 FC専用
+CUV,0.64,GLI訪問にSC内包（36%SC）
+HYQ,0.73,GLI訪問にSC内包（27%SC）
+INT,0.00,TRI訪問のSC100%（独立訪問なし）
+TRI,1.00,NS主力 FC専用
+ENT,1.00,FC専用
+OVE,1.00,FC専用
+LIV,1.00,CV主力 FC専用
+REV,1.00,FC専用
+ALC,1.00,FC専用
+VYV,1.00,RS主力 FC専用
+VPR,0.19,VYV訪問にSC内包（81%SC）
+LVM,1.00,PS FC専用
+Zaso,1.00,CS新製品 FC専用
+WSA,1.00,CS新製品 FC専用
+TKZ,1.00,PS FC専用
+RPL,1.00,PS FC専用
+VON,1.00,PS FC専用

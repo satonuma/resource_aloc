@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# Output files (large HTML/CSV)
+output/
+
+# IDE / Claude
+.claude/
+.vscode/
+*.ipynb_checkpoints/
