@@ -251,5 +251,142 @@ delivery_data = pd.DataFrame(del_records)
 delivery_data.to_csv(BASE_DIR / "delivery_data.csv", index=False, encoding="utf-8-sig")
 print(f"[OK] delivery_data.csv: {len(delivery_data):,} 行")
 
+
+# ============================================================
+# 4. デジタル活動データ (digital_act.csv)
+#    列: activity_date, facility_id, doctor_id, product_id, activity_type, viewed
+#    activity_type: "webinar" (Web講演会視聴) | "e_contents" (eデータ・電子コンテンツ閲覧)
+#    viewed: 1 = 実際に視聴/閲覧、0 = 配信/送付されたが視聴なし
+#
+#    ・webinar     : 月1〜2回開催。複数施設の医師が参加。視聴率は施設・品目で変動。
+#    ・e_contents  : MR活動に紐付いてデジタルコンテンツを配信。1医師1件。
+# ============================================================
+
+# デジタル活動の対象品目と基本パラメータ
+# 視聴ログのみ（配信ログなし）: 全レコードが実際の視聴イベント
+digital_products: list[str] = [
+    "GLI", "CUV", "HYQ", "INT", "TRI", "ENT", "OVE",
+    "LIV", "REV", "ALC", "VYV", "VPR", "LVM",
+]
+
+# 品目別 webinar 視聴者割合（MR接触医師のうち webinar を視聴する割合）
+WEBINAR_VIEW_RATE: dict[str, float] = {
+    "GLI": 0.28, "CUV": 0.23, "HYQ": 0.21, "INT": 0.32, "TRI": 0.30,
+    "ENT": 0.35, "OVE": 0.40, "LIV": 0.18, "REV": 0.19, "ALC": 0.15,
+    "VYV": 0.25, "VPR": 0.22, "LVM": 0.45,
+}
+# 品目別 e_contents 視聴割合（MR接触医師のうち e_contents を開封・閲覧する割合）
+ECONT_VIEW_RATE: dict[str, float] = {
+    "GLI": 0.22, "CUV": 0.21, "HYQ": 0.19, "INT": 0.28, "TRI": 0.25,
+    "ENT": 0.30, "OVE": 0.32, "LIV": 0.14, "REV": 0.15, "ALC": 0.12,
+    "VYV": 0.20, "VPR": 0.18, "LVM": 0.38,
+}
+
+digi_records: list[dict] = []
+
+for pid in digital_products:
+    prod_acts_df = activity_data[activity_data["product_id"] == pid] if not activity_data.empty else pd.DataFrame()
+    if prod_acts_df.empty:
+        continue
+
+    web_rate  = WEBINAR_VIEW_RATE.get(pid, 0.25)
+    econt_rate = ECONT_VIEW_RATE.get(pid, 0.20)
+
+    for ym in months_hist:
+        year, month_num = map(int, ym.split("-"))
+        days_in_month = calendar.monthrange(year, month_num)[1]
+
+        month_act = prod_acts_df[prod_acts_df["activity_date"].str[:7] == ym] if "activity_date" in prod_acts_df.columns else pd.DataFrame()
+        if month_act.empty:
+            continue
+
+        all_docs = month_act["doctor_id"].unique() if "doctor_id" in month_act.columns else []
+        if len(all_docs) == 0:
+            continue
+
+        # --- webinar: 月1〜2回開催、MR接触医師の一部が視聴（視聴ログのみ） ---
+        n_webinars = int(rng.choice([1, 2], p=[0.6, 0.4]))
+        for _ in range(n_webinars):
+            n_viewers = max(0, int(len(all_docs) * rng.normal(web_rate, web_rate * 0.2)))
+            n_viewers = min(n_viewers, len(all_docs))
+            if n_viewers == 0:
+                continue
+            viewers = rng.choice(all_docs, size=n_viewers, replace=False)
+            web_day = int(rng.integers(1, days_in_month + 1))
+            for doc in viewers:
+                digi_records.append({
+                    "activity_date": f"{year}-{month_num:02d}-{web_day:02d}",
+                    "facility_id":   doc_to_facility.get(doc, "F0001"),
+                    "doctor_id":     doc,
+                    "product_id":    pid,
+                    "activity_type": "webinar",
+                })
+
+        # --- e_contents: MR接触医師のうち実際に開封・閲覧した医師のみ記録 ---
+        n_viewers = max(0, int(len(all_docs) * rng.normal(econt_rate, econt_rate * 0.2)))
+        n_viewers = min(n_viewers, len(all_docs))
+        if n_viewers == 0:
+            continue
+        viewers = rng.choice(all_docs, size=n_viewers, replace=False)
+        for doc in viewers:
+            e_day = int(rng.integers(1, days_in_month + 1))
+            digi_records.append({
+                "activity_date": f"{year}-{month_num:02d}-{e_day:02d}",
+                "facility_id":   doc_to_facility.get(doc, "F0001"),
+                "doctor_id":     doc,
+                "product_id":    pid,
+                "activity_type": "e_contents",
+            })
+
+digital_act = pd.DataFrame(digi_records)
+digital_act.to_csv(BASE_DIR / "digital_act.csv", index=False, encoding="utf-8-sig")
+print(f"[OK] digital_act.csv: {len(digital_act):,} 行")
+
+
+# ============================================================
+# 5. SOCパラメータ (soc_params.csv)
+#    SOC = Share of Channel（チャネル想起率）
+#    医師が活動を受けた後、その活動を想起した割合（0〜1）。
+#    活動数とは独立した品質指標なので品目間比較が可能。
+#
+#    列: product_id, mr_soc_rate, digital_soc_rate
+#
+#    設定の考え方:
+#      - PS品目（希少疾患）: 医師が少なく1対1関係が深い → MR想起率が高い
+#      - 新規発売直後の品目: 未知の薬剤なのでMR面談の想起率が高い
+#      - 代謝/循環器等の競合多数品目: MR想起率が低め、デジタルも混戦
+#      - バイオ製剤（ENT等）: 複雑な使用方法があり面談依存が高い → MR高め
+#      - 血漿分画製剤（GLI等）: 特殊製剤でMRが教育役→ MR想起率高め
+# ============================================================
+
+soc_params_records = [
+    # CS品目 ── 小分子/バイオ/血漿分画
+    {"product_id": "GLI",  "mr_soc_rate": 0.58, "digital_soc_rate": 0.22},  # 血漿分画IV: MR教育依存高
+    {"product_id": "GLO",  "mr_soc_rate": 0.55, "digital_soc_rate": 0.20},  # GLI代替: 同様
+    {"product_id": "CUV",  "mr_soc_rate": 0.42, "digital_soc_rate": 0.28},  # 小分子: 競合多め
+    {"product_id": "HYQ",  "mr_soc_rate": 0.44, "digital_soc_rate": 0.25},  # 小分子
+    {"product_id": "INT",  "mr_soc_rate": 0.38, "digital_soc_rate": 0.30},  # 小分子・LOE近接
+    {"product_id": "TRI",  "mr_soc_rate": 0.40, "digital_soc_rate": 0.27},  # 小分子
+    {"product_id": "ENT",  "mr_soc_rate": 0.62, "digital_soc_rate": 0.24},  # バイオ: 投与管理複雑→MR高
+    {"product_id": "OVE",  "mr_soc_rate": 0.68, "digital_soc_rate": 0.26},  # 新規発売品: MR啓発重要
+    {"product_id": "LIV",  "mr_soc_rate": 0.37, "digital_soc_rate": 0.29},  # 小分子・成熟
+    {"product_id": "REV",  "mr_soc_rate": 0.39, "digital_soc_rate": 0.28},  # 小分子
+    {"product_id": "ALC",  "mr_soc_rate": 0.35, "digital_soc_rate": 0.26},  # 小分子・LOE近
+    {"product_id": "VYV",  "mr_soc_rate": 0.46, "digital_soc_rate": 0.30},  # 小分子・新適応追加予定
+    {"product_id": "VPR",  "mr_soc_rate": 0.43, "digital_soc_rate": 0.27},  # 小分子
+    {"product_id": "Zaso", "mr_soc_rate": 0.65, "digital_soc_rate": 0.25},  # 新規バイオ: 啓発期
+    {"product_id": "WSA",  "mr_soc_rate": 0.66, "digital_soc_rate": 0.24},  # 新規小分子: 啓発期
+    # PS品目 ── 希少疾患: 医師数少・深い関係性 → MR想起率高
+    {"product_id": "LVM",  "mr_soc_rate": 0.72, "digital_soc_rate": 0.32},  # PS血漿分画
+    {"product_id": "TKZ",  "mr_soc_rate": 0.68, "digital_soc_rate": 0.28},  # PS小分子
+    {"product_id": "RPL",  "mr_soc_rate": 0.70, "digital_soc_rate": 0.30},  # PS血漿分画
+    {"product_id": "VON",  "mr_soc_rate": 0.69, "digital_soc_rate": 0.29},  # PS血漿分画
+]
+
+soc_params_df = pd.DataFrame(soc_params_records)
+soc_params_df.to_csv(BASE_DIR / "soc_params.csv", index=False, encoding="utf-8-sig")
+print(f"[OK] soc_params.csv: {len(soc_params_df)} 品目")
+
+
 print("\nすべてのデータCSVを生成しました。")
 print("実データに切り替える場合はこれらのCSVを実データで上書きしてください。")

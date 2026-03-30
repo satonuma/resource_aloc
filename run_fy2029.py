@@ -209,6 +209,15 @@ def load_data():
     sales_forecast = pd.read_csv(BASE / "sales_forecast.csv")
     delivery_data  = pd.read_csv(BASE / "delivery_data.csv")
 
+    # ---- デジタル活動データ（digital_act.csv）----
+    digital_path = BASE / "digital_act.csv"
+    digital_act_df: pd.DataFrame = pd.DataFrame()
+    if digital_path.exists():
+        digital_act_df = pd.read_csv(digital_path, dtype=str)
+        print(f"       → digital_act.csv: {len(digital_act_df):,} 行読み込み（全行=視聴イベント）")
+    else:
+        print("       → digital_act.csv なし → デジタル活動なし")
+
     # ---- 供給制限スケジュール（supply_restriction.csv）----
     supply_path = BASE / "supply_restriction.csv"
     supply_restrictions: Dict[str, list] = {}
@@ -227,6 +236,7 @@ def load_data():
     return dict(
         activity_data        = activity_data,
         doctor_attr          = doctor_attr,
+        digital_act          = digital_act_df,
         supply_restrictions  = supply_restrictions,
         product_info       = None,          # products.csv で管理（main()で上書き）
         decay_params_df    = decay_params_df,
@@ -334,8 +344,77 @@ def main():
         mmm_optimal_activities=data["mmm_optimal_df"],
     )
 
+    # ---- SOC（Share of Channel）実績データ集計 ----
+    # MR活動数: activity_data の月次平均（product_id 別）
+    # デジタル活動数: digital_act の月次平均（全行=視聴イベント）
+    _act = data["activity_data"]
+    _digi = data["digital_act"]
+
+    _mr_monthly = pd.DataFrame()
+    if not _act.empty and "product_id" in _act.columns:
+        _act_ym = _act.copy()
+        if "activity_ym" not in _act_ym.columns and "activity_date" in _act_ym.columns:
+            _act_ym["activity_ym"] = _act_ym["activity_date"].str[:7]
+        if "activity_ym" in _act_ym.columns:
+            _mr_monthly = (
+                _act_ym.groupby(["product_id", "activity_ym"])
+                .size()
+                .reset_index(name="count")
+                .groupby("product_id")["count"]
+                .mean()
+            )
+
+    _dig_monthly = pd.Series(dtype=float)
+    if not _digi.empty and "product_id" in _digi.columns:
+        _digi_ym = _digi.copy()
+        if "activity_ym" not in _digi_ym.columns and "activity_date" in _digi_ym.columns:
+            _digi_ym["activity_ym"] = _digi_ym["activity_date"].str[:7]
+        if "activity_ym" in _digi_ym.columns:
+            _dig_monthly = (
+                _digi_ym.groupby(["product_id", "activity_ym"])
+                .size()
+                .reset_index(name="count")
+                .groupby("product_id")["count"]
+                .mean()
+            )
+
+    # SOCデータを辞書化
+    all_pids = set(_mr_monthly.index.tolist()) | set(_dig_monthly.index.tolist())
+    soc_activity = {
+        pid: {
+            "mr":      float(_mr_monthly.get(pid, 0.0)),
+            "digital": float(_dig_monthly.get(pid, 0.0)),
+        }
+        for pid in all_pids
+    }
+    # ---- SOC想起率（soc_params.csv）----
+    soc_rates: Dict[str, Dict[str, float]] = {}
+    soc_params_path = Path(__file__).parent / "soc_params.csv"
+    if soc_params_path.exists():
+        soc_params_df = pd.read_csv(soc_params_path)
+        for _, row in soc_params_df.iterrows():
+            soc_rates[str(row["product_id"]).strip()] = {
+                "mr":      float(row["mr_soc_rate"]),
+                "digital": float(row["digital_soc_rate"]),
+            }
+        print(f"       → soc_params.csv: {len(soc_rates)} 品目の想起率を読み込み")
+    else:
+        print("       → soc_params.csv なし → デフォルト想起率使用")
+
+    print(f"       → SOCデータ集計: {len(soc_activity)} 品目")
+    for pid in sorted(soc_activity.keys()):
+        v = soc_activity[pid]
+        r = soc_rates.get(pid, {})
+        mr_eff  = v['mr']  * r.get('mr', 0.50)
+        dig_eff = v['digital'] * r.get('digital', 0.25)
+        total   = mr_eff + dig_eff
+        soc_share = mr_eff / total if total > 0 else 0.5
+        print(f"          {pid}: MR有効接触={mr_eff:.0f} / デジタル有効接触={dig_eff:.0f} → SOC MR比={soc_share:.2f}")
+
     mr_digital_estimator = MRDigitalRatioEstimator(
         decay_params_df=data["decay_params_df"],
+        soc_activity=soc_activity,
+        soc_rates=soc_rates,
     )
 
     # ----------------------------------------------------------
@@ -553,6 +632,7 @@ def main():
         optimal_fte_df=optimal_fte_df,
         raw_summary_fy=raw_summary_fy,
         per_launch_allocations=per_launch_allocations,
+        digital_act_df=data["digital_act"],
         frequency_mode="lifecycle_adjusted",
         filename="fy2029_fte_report.html",
     )

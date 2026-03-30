@@ -149,11 +149,7 @@ def normalize_fte_to_headcount(
                 result.loc[mask, fte_col] = (result.loc[mask, fte_col] * scale).round(2)
 
     # FTEはMRのみ: adjusted_mr_fte = adjusted_fte (そのままMR headcount)
-    # digital_fte は参考値: MR:Digital比率を保ちつつ正規化後の値から逆算
     result["adjusted_mr_fte"] = result[fte_col].round(2)
-    result["adjusted_digital_fte"] = (
-        result[fte_col] / result["mr_ratio"].clip(lower=0.001) * result["digital_ratio"]
-    ).round(2)
     if fte_col != "adjusted_fte":
         result["adjusted_fte"] = result[fte_col].round(2)
 
@@ -781,51 +777,116 @@ class ActivityFrequencyEstimator:
 
 class MRDigitalRatioEstimator:
     """
-    Meridianの品目×チャネル別減衰曲線パラメータから
-    MR/デジタル比率を推定する。
+    MR/デジタル比率を3要素の加重平均で推定する。
 
-    推定ロジック:
-      各チャネルの限界応答（Hill関数の微分 × beta）を計算し、
-      限界応答の比をMR/Digital比率とする。
+    1. MMM component （重み W_MMM=0.50）
+       Hill関数の「総効果量」hill_value(x) = beta×x^slope/(ec^slope+x^slope) の比率。
+       限界効果（微分値）ではなく実際の活動量 x における応答総量を使うことで、
+       活動数が少ないチャネルは score が自然に低くなる（= 活動数補正済み）。
 
-    ライフサイクル調整:
-      ローンチ期 (≤12ヶ月) : MR +10%
-      LOE直前 (≤12ヶ月)   : Digital +15%
+    2. SOC component （重み W_SOC=0.30）
+       「活動数 × 想起率」による有効接触数の比率。
+         mr_effective  = mr_monthly_count  × mr_soc_rate[product]
+         dig_effective = dig_monthly_count × digital_soc_rate[product]
+         soc_share = mr_effective / (mr_effective + dig_effective)
+       想起率（soc_params.csv）は活動1件あたりの想起確率（0〜1）であり
+       活動数とは独立した品質指標のため品目間比較が可能。
 
-    decay_params_df のカラム:
-      product_id, channel, alpha, beta, ec, slope
+    3. Lifecycle component （加算調整）
+       発売年数・LOEまでの残年数に応じた加算値。
+         発売 <1年     : +0.15 （医師啓発・処方習慣形成でMR最重要）
+         発売 1-2年    : +0.08 （成長期、MR強め）
+         発売 2-3年    : +0.03 （成長後期）
+         成熟期（3年〜）:  0.00 （中立）
+         LOE <3年      : −0.05 （段階的デジタルシフト）
+         LOE <1年      : −0.12 （急速デジタルシフト）
+         LOE後          : −0.20 （最小MR、デジタル中心）
+
+    最終値:
+      base = W_MMM×mmm + W_SOC×soc + W_DEF×default_mr
+      mr_ratio = clip(base + lifecycle_adj, MIN_MR, MAX_MR)
+
+    decay_params_df のカラム: product_id, channel, alpha, beta, ec, slope
+    soc_activity           : {product_id: {"mr": float, "digital": float}}
+                              （月次平均活動数。activity_data + digital_act から集計）
+    soc_rates              : {product_id: {"mr": float, "digital": float}}
+                              （想起率。soc_params.csv から読み込み。活動1件あたりの想起確率）
     """
 
-    DEFAULT_RATIO = {"MR": 0.6, "Digital": 0.4}
+    W_MMM    = 0.50
+    W_SOC    = 0.30
+    W_DEF    = 0.20
+    DEFAULT_MR = 0.65
+    MIN_MR   = 0.30
+    MAX_MR   = 0.90
 
-    def __init__(self, decay_params_df: pd.DataFrame) -> None:
+    # 後方互換用
+    DEFAULT_RATIO = {"MR": 0.65, "Digital": 0.35}
+
+    # デフォルト想起率（soc_params.csv がない場合のフォールバック）
+    DEFAULT_MR_SOC_RATE      = 0.50
+    DEFAULT_DIGITAL_SOC_RATE = 0.25
+
+    def __init__(
+        self,
+        decay_params_df: pd.DataFrame,
+        soc_activity: Optional[Dict[str, Dict[str, float]]] = None,
+        soc_rates: Optional[Dict[str, Dict[str, float]]] = None,
+    ) -> None:
         self.params = decay_params_df
+        # {product_id: {"mr": monthly_avg_count, "digital": monthly_avg_count}}
+        self.soc_activity = soc_activity or {}
+        # {product_id: {"mr": recall_rate, "digital": recall_rate}}
+        self.soc_rates = soc_rates or {}
 
     # ----------------------------------------------------------
     # Hill関数ユーティリティ
     # ----------------------------------------------------------
 
     @staticmethod
+    def _hill_value(x: float, beta: float, ec: float, slope: float) -> float:
+        """
+        Hill関数の総効果量: beta × x^slope / (ec^slope + x^slope)
+
+        活動量 x における応答総量。活動数が少なければ自然に低くなるため
+        「活動数補正済みの限界効果」として機能する。
+        """
+        if x <= 0:
+            return 0.0
+        return beta * (x ** slope) / (ec ** slope + x ** slope)
+
+    @staticmethod
     def _hill_marginal(x: float, ec: float, slope: float) -> float:
-        """Hill関数の微分（1回あたりの限界応答）"""
-        a = max(x, 1e-6)  # ゼロ除算回避
+        """Hill関数の微分（1回あたりの限界応答）。ROI計算に使用。"""
+        a = max(x, 1e-6)
         num = slope * (ec ** slope) * (a ** (slope - 1))
         den = (ec ** slope + a ** slope) ** 2
         return num / den if den > 0 else 0.0
 
+    # ----------------------------------------------------------
+    # ライフサイクル調整
+    # ----------------------------------------------------------
+
     @staticmethod
-    def _mmm_channel_score(activity: float, beta: float, ec: float, slope: float) -> float:
+    def _lifecycle_adj(years_since_launch: float, years_to_loe: float) -> float:
         """
-        MMMチャネルスコア: Hill関数の限界効果 × EC50（無次元化）。
-
-        activity=0 の場合は EC50 を参照点（起動点）として使用。
-        EC50 倍することでチャネル間のスケール差を吸収し比較可能にする。
-
-        score = dR/da × EC50 = beta × slope × EC50 × a^(slope-1) / (EC50^slope + a^slope)^2 × EC50
+        発売年数・LOEまでの残年数によるMR比率の加算調整値。
+        LOE近接条件を優先判定。
         """
-        a_ref = activity if activity > 0 else ec  # 未活動品は EC50 を参照点
-        marginal = MRDigitalRatioEstimator._hill_marginal(a_ref, ec, slope)
-        return marginal * beta * ec  # 無次元スコア（チャネル比較用）
+        if years_to_loe <= 0:
+            return -0.20   # LOE後: デジタル中心
+        elif years_to_loe < 1:
+            return -0.12   # LOE直前1年未満: 急速デジタルシフト
+        elif years_to_loe < 3:
+            return -0.05   # LOE直前1-3年: 段階的デジタルシフト
+        elif years_since_launch < 1:
+            return +0.15   # 発売直後: 医師啓発・処方習慣形成
+        elif years_since_launch < 2:
+            return +0.08   # 成長期
+        elif years_since_launch < 3:
+            return +0.03   # 成長後期
+        else:
+            return  0.00   # 成熟期
 
     # ----------------------------------------------------------
     # 比率推定
@@ -834,9 +895,7 @@ class MRDigitalRatioEstimator:
     def estimate(
         self,
         product_id: str,
-        mr_activity: float,
-        digital_activity: float,
-        months_since_launch: int = 999,
+        months_since_launch: int = 0,
         loe_months_remaining: float = 999,
     ) -> Dict[str, float]:
         """
@@ -844,56 +903,62 @@ class MRDigitalRatioEstimator:
 
         Parameters
         ----------
-        product_id          : 品目ID
-        mr_activity         : 現在のMR月次コール数
-        digital_activity    : 現在のデジタル月次視聴数
-        months_since_launch : 発売後経過月数
-        loe_months_remaining: LOEまでの残月数
+        product_id           : 品目ID
+        months_since_launch  : 発売後経過月数
+        loe_months_remaining : LOEまでの残月数
 
         Returns
         -------
-        {"MR": 0.6, "Digital": 0.4} のような辞書
+        {"MR": 0.65, "Digital": 0.35} のような辞書
         """
+        years_since_launch = months_since_launch / 12.0
+        years_to_loe       = loe_months_remaining / 12.0
+
+        soc = self.soc_activity.get(product_id, {})
+        mr_act  = float(soc.get("mr",      0.0))
+        dig_act = float(soc.get("digital", 0.0))
+
+        rates = self.soc_rates.get(product_id, {})
+        mr_soc_rate  = float(rates.get("mr",      self.DEFAULT_MR_SOC_RATE))
+        dig_soc_rate = float(rates.get("digital", self.DEFAULT_DIGITAL_SOC_RATE))
+
+        # ---- 1. MMM component: Hill総効果量比（活動数補正済み）----
         mr_row  = self.params[
-            (self.params["product_id"] == product_id)
-            & (self.params["channel"] == "MR")
+            (self.params["product_id"] == product_id) & (self.params["channel"] == "MR")
         ]
         dig_row = self.params[
-            (self.params["product_id"] == product_id)
-            & (self.params["channel"] == "Digital")
+            (self.params["product_id"] == product_id) & (self.params["channel"] == "Digital")
         ]
 
-        if mr_row.empty or dig_row.empty:
-            return dict(self.DEFAULT_RATIO)
-
-        mr  = mr_row.iloc[0]
-        dig = dig_row.iloc[0]
-
-        # ---- MMMベース: チャネル別スコア（1回あたり限界効果 × EC50で無次元化）----
-        mr_score  = self._mmm_channel_score(
-            mr_activity,      float(mr["beta"]),  float(mr["ec"]),  float(mr["slope"])
-        )
-        dig_score = self._mmm_channel_score(
-            digital_activity, float(dig["beta"]), float(dig["ec"]), float(dig["slope"])
-        )
-        total = mr_score + dig_score
-
-        if total <= 0:
-            ratio_mr = float(self.DEFAULT_RATIO["MR"])
+        if not mr_row.empty and not dig_row.empty:
+            mr  = mr_row.iloc[0]
+            dig = dig_row.iloc[0]
+            mr_val  = self._hill_value(mr_act,  float(mr["beta"]),  float(mr["ec"]),  float(mr["slope"]))
+            dig_val = self._hill_value(dig_act, float(dig["beta"]), float(dig["ec"]), float(dig["slope"]))
+            total_mmm = mr_val + dig_val
+            mmm_ratio = (mr_val / total_mmm) if total_mmm > 0 else self.DEFAULT_MR
         else:
-            ratio_mr = mr_score / total
+            mmm_ratio = self.DEFAULT_MR
 
-        # ---- ライフサイクル修正（小幅調整）----
-        # 発売直後: MR面談が最も重要（医師啓発・処方習慣形成）→ MR比率を上げる
-        # LOE直前: 新処方獲得より維持管理 → デジタルで効率化
-        if months_since_launch <= 12:
-            ratio_mr = min(ratio_mr + 0.08, 0.90)
-        elif months_since_launch <= 36:
-            ratio_mr = min(ratio_mr + 0.04, 0.85)
-        elif loe_months_remaining <= 12:
-            ratio_mr = max(ratio_mr - 0.10, 0.10)
+        # ---- 2. SOC component: 有効接触数（活動数 × 想起率）の比率 ----
+        # 想起率は活動の質指標（0〜1）なので品目間比較が可能
+        mr_effective  = mr_act  * mr_soc_rate
+        dig_effective = dig_act * dig_soc_rate
+        total_effective = mr_effective + dig_effective
+        soc_ratio = (mr_effective / total_effective) if total_effective > 0 else self.DEFAULT_MR
 
-        return {"MR": round(ratio_mr, 3), "Digital": round(1 - ratio_mr, 3)}
+        # ---- 3. Lifecycle adjustment ----
+        lc_adj = self._lifecycle_adj(years_since_launch, years_to_loe)
+
+        # ---- 加重平均 + ライフサイクル加算 ----
+        base = (
+            self.W_MMM * mmm_ratio
+            + self.W_SOC * soc_ratio
+            + self.W_DEF * self.DEFAULT_MR
+        )
+        mr_ratio = float(np.clip(base + lc_adj, self.MIN_MR, self.MAX_MR))
+
+        return {"MR": round(mr_ratio, 3), "Digital": round(1.0 - mr_ratio, 3)}
 
 
 # ============================================================
@@ -1234,17 +1299,20 @@ class FY2029FTECalculator:
             for key, vals in area_month_totals.items()
         }
 
-        # ---- Pass 2: FTEベースMR比率 → required_fte（MR headcount）----
+        # ---- Pass 2: MR/Digital比率推定 → required_fte（MR headcount）----
         records = []
         for rec in pass1_records:
-            area     = rec["area"]
+            pid      = rec["product_id"]
             month    = rec["month"]
             base_fte = rec["base_fte"]
-            area_avg = area_month_avg.get((area, month), 0.0)
+            config   = self.configs[pid]
 
-            mr_ratio      = self._fte_based_mr_ratio(base_fte, area_avg)
-            digital_ratio = round(1.0 - mr_ratio, 3)
-            mr_ratio      = round(mr_ratio, 3)
+            elapsed  = _months_between(config.launch_ym, month)
+            loe_rem  = config.loe_months - elapsed
+            ratio    = self.mr_digital_estimator.estimate(pid, elapsed, loe_rem)
+
+            mr_ratio      = ratio["MR"]
+            digital_ratio = ratio["Digital"]
             required_fte  = round(base_fte * mr_ratio, 2)
 
             records.append({
@@ -1254,7 +1322,6 @@ class FY2029FTECalculator:
                 "mr_ratio":        mr_ratio,
                 "digital_ratio":   digital_ratio,
                 "mr_fte":          required_fte,   # = required_fte（MR FTE = required FTE）
-                "digital_fte":     round(base_fte * digital_ratio, 2),  # 参考値
             })
 
         return pd.DataFrame(records)
@@ -1296,9 +1363,6 @@ class FY2029FTECalculator:
         fte_df["adjusted_fte"]  = (fte_df["required_fte"] - fte_df["fte_reduction"]).clip(lower=0)
         # FTEはMRのみ: adjusted_mr_fte = adjusted_fte
         fte_df["adjusted_mr_fte"] = fte_df["adjusted_fte"]
-        fte_df["adjusted_digital_fte"] = (
-            fte_df["adjusted_fte"] / fte_df["mr_ratio"].clip(lower=0.001) * fte_df["digital_ratio"]
-        ).round(2)
 
         return fte_df, allocation_df
 
@@ -1313,7 +1377,6 @@ class FY2029FTECalculator:
         """
         fte_col = "adjusted_fte" if "adjusted_fte" in fte_df.columns else "required_fte"
         mr_col  = "adjusted_mr_fte" if "adjusted_mr_fte" in fte_df.columns else "mr_fte"
-        dig_col = "adjusted_digital_fte" if "adjusted_digital_fte" in fte_df.columns else "digital_fte"
 
         fte_df = fte_df.copy()
         # 月文字列から自動でFYを判定（マルチ年度対応）
@@ -1325,7 +1388,6 @@ class FY2029FTECalculator:
                 avg_required_fte =(fte_col,  "mean"),
                 max_required_fte =(fte_col,  "max"),
                 avg_mr_fte       =(mr_col,   "mean"),
-                avg_digital_fte  =(dig_col,  "mean"),
                 avg_mr_ratio     =("mr_ratio",      "mean"),
                 avg_digital_ratio=("digital_ratio", "mean"),
             )
@@ -1374,7 +1436,6 @@ class FY2029FTECalculator:
             fte_df["fte_reduction"] = 0.0
             fte_df["adjusted_fte"] = fte_df[fte_col]
             fte_df["adjusted_mr_fte"] = fte_df["mr_fte"]
-            fte_df["adjusted_digital_fte"] = fte_df["digital_fte"]
             return fte_df, pd.DataFrame()
 
         # ピーク時の配分先を確定（限界ROI逆数按分）
@@ -1399,9 +1460,6 @@ class FY2029FTECalculator:
         fte_df["adjusted_fte"] = (fte_df[fte_col] - fte_df["fte_reduction"]).clip(lower=0)
         # FTEはMRのみ: adjusted_mr_fte = adjusted_fte
         fte_df["adjusted_mr_fte"] = fte_df["adjusted_fte"]
-        fte_df["adjusted_digital_fte"] = (
-            fte_df["adjusted_fte"] / fte_df["mr_ratio"].clip(lower=0.001) * fte_df["digital_ratio"]
-        ).round(2)
 
         return fte_df, peak_allocation_df
 

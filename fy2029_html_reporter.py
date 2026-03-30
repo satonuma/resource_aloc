@@ -27,6 +27,7 @@ from plotly.subplots import make_subplots
 PRODUCT_COLORS: Dict[str, str] = {
     # PDT群 ── 青系
     "GLI": "#1f77b4",   # 中青
+    "GLO": "#5bc8af",   # ティール（GLIの一時代替品）
     "CUV": "#17becf",   # シアン
     "HYQ": "#6baed6",   # 薄青
     # NS群 ── 赤/橙系（大品目: 目立つ色）
@@ -110,13 +111,14 @@ def _df_to_html(
 # グラフ生成
 # ============================================================
 
-def fig_fte_by_product_bar(summary_df: pd.DataFrame) -> go.Figure:
+def fig_fte_by_product_bar(summary_df: pd.DataFrame, target_fy: str = "") -> go.Figure:
     """
     品目別 平均必要FTE（MRのみ）の棒グラフ。FTE=MR headcountのみ。
     summary_df: summarize_fy() の出力
     """
     # FTE降順でソート
     df = summary_df.copy().sort_values("avg_required_fte", ascending=False)
+    fy_label = f" - {target_fy}" if target_fy else ""
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
@@ -129,7 +131,7 @@ def fig_fte_by_product_bar(summary_df: pd.DataFrame) -> go.Figure:
     ))
 
     fig.update_layout(
-        title="品目別 平均必要FTE（MR headcount）- FY2029",
+        title=f"品目別 平均必要FTE（MR headcount）{fy_label}",
         xaxis_title="品目",
         yaxis_title="FTE（人）",
         height=400,
@@ -209,7 +211,133 @@ def fig_monthly_fte_trend(fte_df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def fig_mr_digital_ratio(summary_df: pd.DataFrame) -> go.Figure:
+def fig_digital_activity(digital_act_df: pd.DataFrame) -> go.Figure:
+    """
+    デジタル活動（webinar/e_contents）の品目別視聴数チャート。
+    視聴ログのみのデータ: 全行が視聴イベント。
+
+    左: 品目別 視聴数（webinar/e_contents 積み上げ）
+    右: 活動種別ごとの品目シェア（100%積み上げ）
+    """
+    if digital_act_df.empty:
+        return go.Figure()
+
+    df = digital_act_df.copy()
+
+    fig = make_subplots(
+        rows=1, cols=2,
+        subplot_titles=("品目別 デジタル視聴数（全期間）", "品目別 活動種別構成比"),
+        horizontal_spacing=0.12,
+    )
+
+    by_type = (
+        df.groupby(["product_id", "activity_type"])
+        .size()
+        .reset_index(name="view_count")
+    )
+    products_sorted = (
+        by_type.groupby("product_id")["view_count"].sum()
+        .sort_values(ascending=False).index.tolist()
+    )
+
+    # 左: 品目別視聴数（webinar/e_contents 積み上げ）
+    for act_type, color in [("webinar", "#2563eb"), ("e_contents", "#16a34a")]:
+        sub = (
+            by_type[by_type["activity_type"] == act_type]
+            .set_index("product_id")
+            .reindex(products_sorted, fill_value=0)
+            .reset_index()
+        )
+        fig.add_trace(go.Bar(
+            name=act_type,
+            x=sub["product_id"],
+            y=sub["view_count"],
+            marker_color=color,
+            text=sub["view_count"],
+            textposition="inside",
+        ), row=1, col=1)
+
+    # 右: 100%積み上げ（活動種別構成比）
+    total_by_prod = by_type.groupby("product_id")["view_count"].sum()
+    for act_type, color in [("webinar", "#2563eb"), ("e_contents", "#16a34a")]:
+        sub = (
+            by_type[by_type["activity_type"] == act_type]
+            .set_index("product_id")
+            .reindex(products_sorted, fill_value=0)
+            .reset_index()
+        )
+        pct = (sub["view_count"] / total_by_prod.reindex(products_sorted, fill_value=1).values * 100).round(1)
+        fig.add_trace(go.Bar(
+            name=act_type,
+            x=sub["product_id"],
+            y=pct,
+            marker_color=color,
+            text=pct.astype(str) + "%",
+            textposition="inside",
+            showlegend=False,
+        ), row=1, col=2)
+
+    fig.update_layout(
+        barmode="stack",
+        height=420,
+        template="plotly_white",
+        title="デジタル活動（webinar / e_contents）視聴ログ",
+        legend=dict(orientation="h", y=1.08),
+    )
+    fig.update_yaxes(title_text="視聴数", row=1, col=1)
+    fig.update_yaxes(title_text="構成比（%）", range=[0, 110], row=1, col=2)
+    fig.update_xaxes(tickangle=45)
+    return fig
+
+
+def fig_digital_trend(digital_act_df: pd.DataFrame) -> go.Figure:
+    """品目別 月次デジタル視聴数推移（webinar/e_contents別）"""
+    if digital_act_df.empty:
+        return go.Figure()
+
+    df = digital_act_df.copy()
+    if "activity_date" in df.columns and "activity_ym" not in df.columns:
+        df["activity_ym"] = df["activity_date"].str[:7]
+    if "activity_ym" not in df.columns:
+        return go.Figure()
+
+    fig = make_subplots(
+        rows=1, cols=2,
+        subplot_titles=("webinar 月次視聴数", "e_contents 月次視聴数"),
+        horizontal_spacing=0.10,
+    )
+
+    for col_idx, act_type in enumerate(["webinar", "e_contents"], start=1):
+        sub_df = df[df["activity_type"] == act_type]
+        monthly = (
+            sub_df.groupby(["activity_ym", "product_id"])
+            .size()
+            .reset_index(name="view_count")
+        )
+        for pid in sorted(monthly["product_id"].unique()):
+            s = monthly[monthly["product_id"] == pid].sort_values("activity_ym")
+            color = PRODUCT_COLORS.get(pid, "#aaa")
+            fig.add_trace(go.Scatter(
+                name=pid,
+                x=s["activity_ym"],
+                y=s["view_count"],
+                mode="lines",
+                line=dict(color=color, width=2),
+                showlegend=(col_idx == 1),
+            ), row=1, col=col_idx)
+
+    fig.update_layout(
+        height=380,
+        template="plotly_white",
+        title="品目別 月次デジタル視聴数推移",
+        legend=dict(orientation="v", y=0.5, x=1.02, font=dict(size=10)),
+    )
+    fig.update_xaxes(tickangle=45)
+    fig.update_yaxes(title_text="視聴数")
+    return fig
+
+
+def fig_mr_digital_ratio(summary_df: pd.DataFrame, target_fy: str = "") -> go.Figure:
     """品目別 MR/デジタル比率 水平バー"""
     df = summary_df.copy().sort_values("avg_mr_ratio")
 
@@ -233,9 +361,10 @@ def fig_mr_digital_ratio(summary_df: pd.DataFrame) -> go.Figure:
         textposition="inside",
     ))
 
+    fy_label = f" - {target_fy}" if target_fy else ""
     fig.update_layout(
         barmode="stack",
-        title="品目別 MR / デジタル活動比率 - FY2029<br><sup>MMMチャネル限界効果（1回あたり増分）× ライフサイクルで算出</sup>",
+        title=f"品目別 MR / デジタル活動比率{fy_label}<br><sup>MMMチャネル限界効果（1回あたり増分）× ライフサイクルで算出</sup>",
         xaxis_title="比率（%）",
         xaxis=dict(range=[0, 100]),
         height=380,
@@ -413,8 +542,14 @@ def fig_fte_vs_headcount(total_fte_df: pd.DataFrame) -> go.Figure:
             showlegend=False,
         ), row=1, col=col_idx)
 
+    # derive year range from data for title
+    fy_range_label = ""
+    if "fiscal_year" in total_fte_df.columns:
+        fy_vals = sorted(total_fte_df["fiscal_year"].unique())
+        if fy_vals:
+            fy_range_label = f" ({fy_vals[0]}〜{fy_vals[-1]})"
     fig.update_layout(
-        title="必要FTE vs 現行MR数比較 - FY2029",
+        title=f"必要FTE vs 現行MR数比較{fy_range_label}",
         height=400,
         template="plotly_white",
     )
@@ -457,9 +592,10 @@ def fig_fy_trend(summary_df: pd.DataFrame) -> go.Figure:
             textposition="inside",
         ))
 
+    fy_range = f"{fy_list[0]}〜{fy_list[-1]}" if fy_list else ""
     fig.update_layout(
         barmode="stack",
-        title="品目別 年度FTE推移（FY2026〜FY2029）",
+        title=f"品目別 年度FTE推移（{fy_range}）",
         xaxis_title="年度",
         yaxis_title="平均必要FTE（人）",
         height=560,
@@ -481,6 +617,8 @@ def fig_fy_trend_area(total_fte_fy_df: pd.DataFrame) -> go.Figure:
     領域×年度の合計FTE推移（折れ線 + 現行MR数比較）
     total_fte_fy_df: total_fte_by_area_fy() の出力
     """
+    fy_vals_area = sorted(total_fte_fy_df["fiscal_year"].unique()) if "fiscal_year" in total_fte_fy_df.columns else []
+    area_fy_range = f"（{fy_vals_area[0]}〜{fy_vals_area[-1]}）" if fy_vals_area else ""
     fig = make_subplots(rows=1, cols=2, subplot_titles=("CS領域", "PS領域"))
 
     for col_idx, area in enumerate(["CS", "PS"], start=1):
@@ -504,7 +642,7 @@ def fig_fy_trend_area(total_fte_fy_df: pd.DataFrame) -> go.Figure:
         ), row=1, col=col_idx)
 
     fig.update_layout(
-        title="領域別 年度FTE vs 現行MR数（FY2026〜FY2029）",
+        title=f"領域別 年度FTE vs 現行MR数{area_fy_range}",
         height=380,
         template="plotly_white",
     )
@@ -666,7 +804,7 @@ def fig_fc_sc_breakdown(fte_df: pd.DataFrame) -> go.Figure:
 
     fig.update_layout(
         barmode="stack",
-        title="品目別 FC / SC 医師数（FY2029月平均）",
+        title="品目別 FC / SC 医師数（全期間月平均）",
         xaxis_title="品目",
         yaxis_title="医師数",
         height=380,
@@ -685,7 +823,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FY2029 FTE算出レポート</title>
+  <title>FTE算出レポート ({target_fy})</title>
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
   <style>
     :root {{
@@ -802,10 +940,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
 
 <header>
-  <h1>FY2029 FTE算出レポート</h1>
+  <h1>FTE算出レポート（{target_fy} フォーカス）</h1>
   <div class="meta">
     生成日時: {generated_at} ／
-    対象期間: FY2029（2029年4月 〜 2030年3月）／
+    対象期間: {fy_range_display}／
     頻度モード: {frequency_mode}
   </div>
 </header>
@@ -942,16 +1080,28 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     {table_headcount}
   </section>
 
+  <!-- Section 5b: デジタル活動 -->
+  <section>
+    <h2>⑨ デジタル活動実績（webinar / e_contents）</h2>
+    <p style="font-size:13px;color:#666;margin-bottom:12px;">
+      MR活動（activity_data）とは独立したデジタルチャネルの実績。
+      webinar（Web講演会）・e_contents（電子コンテンツ）の品目別視聴状況。MR比率計算の参考指標。
+    </p>
+    <div class="chart-full">{chart_digital_activity}</div>
+    <div class="chart-full">{chart_digital_trend}</div>
+    {table_digital_summary}
+  </section>
+
   <!-- Section 6: 詳細テーブル（全品目×全月）-->
   <section>
-    <h2>⑨ 品目×月別 詳細FTE（全データ）</h2>
+    <h2>⑩ 品目×月別 詳細FTE（全データ）</h2>
     {table_detail}
   </section>
 
 </div>
 
 <footer>
-  FY2029 FTE算出システム ／ 生成: {generated_at}
+  FTE算出システム ／ 生成: {generated_at}
 </footer>
 
 </body>
@@ -1000,6 +1150,7 @@ class FY2029HTMLReporter:
         optimal_fte_df: Optional[pd.DataFrame] = None,
         raw_summary_fy: Optional[pd.DataFrame] = None,
         per_launch_allocations: Optional[Dict[str, pd.DataFrame]] = None,
+        digital_act_df: Optional[pd.DataFrame] = None,
     ) -> Path:
         """
         HTMLレポートを生成してファイルに保存する。
@@ -1066,15 +1217,17 @@ class FY2029HTMLReporter:
             "product_id", "month", "area",
             "fc_doctors", "sc_doctors", "visit_frequency",
             "required_calls", fte_col,
-            "mr_ratio", "digital_ratio", "mr_fte", "digital_fte",
+            "mr_ratio", "digital_ratio", "mr_fte",
         ]
-        detail_df = fte_df[[c for c in detail_cols if c in fte_df.columns]].copy()
-        detail_df.columns = [
+        col_labels = [
             "品目", "月", "領域",
             "FC医師数", "SC医師数", "訪問頻度",
             "必要コール数", "必要FTE",
-            "MR比率", "Digital比率", "MR_FTE", "Digital_FTE",
-        ][:len(detail_df.columns)]
+            "MR比率", "Digital比率", "MR_FTE",
+        ]
+        available_cols = [c for c in detail_cols if c in fte_df.columns]
+        detail_df = fte_df[available_cols].copy()
+        detail_df.columns = col_labels[:len(available_cols)]
 
         # ---- 総FTEテーブル ----
         total_fte_display = total_fte_df.copy().rename(columns={
@@ -1085,13 +1238,18 @@ class FY2029HTMLReporter:
 
         # ---- FYトレンド用チャート ----
         _fy_area_df = total_fte_fy_df if total_fte_fy_df is not None else pd.DataFrame()
-        # ③セクション: FY2029のsummaryを使用
+        # ③セクション: FY2029のsummaryを使用（なければ最終FY）
         TARGET_FY = "FY2029"
         fy_list = sorted(summary_df["fiscal_year"].unique()) if "fiscal_year" in summary_df.columns else []
+        if TARGET_FY not in fy_list and fy_list:
+            TARGET_FY = fy_list[-1]
         summary_latest = (
             summary_df[summary_df["fiscal_year"] == TARGET_FY]
-            if TARGET_FY in fy_list else
-            summary_df[summary_df["fiscal_year"] == fy_list[-1]] if fy_list else summary_df
+            if TARGET_FY in fy_list else summary_df
+        )
+        fy_range_display = (
+            f"{fy_list[0]}〜{fy_list[-1]}" if len(fy_list) >= 2
+            else (fy_list[0] if fy_list else TARGET_FY)
         )
 
         # ---- FYトレンドテーブル（品目×FY横持ち） ----
@@ -1103,6 +1261,27 @@ class FY2029HTMLReporter:
             pivot_fy.columns.name = None
         else:
             pivot_fy = summary_df[["product_id", "avg_required_fte"]].round(1)
+
+        # ---- デジタル活動サマリーテーブル ----
+        _digital_df = digital_act_df if digital_act_df is not None else pd.DataFrame()
+        if not _digital_df.empty and "product_id" in _digital_df.columns:
+            _dg = _digital_df.copy()
+            _dg_s = (
+                _dg.groupby(["product_id", "activity_type"])
+                .size()
+                .reset_index(name="視聴数")
+                .rename(columns={"product_id": "品目", "activity_type": "活動種別"})
+            )
+            # 月次平均視聴数を追加
+            if "activity_date" in _dg.columns:
+                _dg["activity_ym"] = _dg["activity_date"].str[:7]
+            if "activity_ym" in _dg.columns:
+                _n_months = _dg["activity_ym"].nunique()
+                _dg_s["月平均視聴数"] = (_dg_s["視聴数"] / max(_n_months, 1)).round(1)
+            digital_summary_html = _df_to_html(_dg_s, title="デジタル活動サマリー（全期間・視聴ログ）",
+                                               bar_cols=["視聴数"])
+        else:
+            digital_summary_html = "<p style='color:#999;'>デジタル活動データなし</p>"
 
         # ---- HTMLレンダリング ----
         _opt_df = optimal_fte_df if optimal_fte_df is not None else pd.DataFrame()
@@ -1118,8 +1297,8 @@ class FY2029HTMLReporter:
             chart_sim_vs_optimal=_fig_to_html(
                 fig_sim_vs_optimal(summary_df, _opt_df), "chart_sim_vs_optimal"
             ),
-            chart_fte_bar=_fig_to_html(fig_fte_by_product_bar(summary_latest), "chart_fte_bar"),
-            chart_mr_digital=_fig_to_html(fig_mr_digital_ratio(summary_latest), "chart_mr_digital"),
+            chart_fte_bar=_fig_to_html(fig_fte_by_product_bar(summary_latest, TARGET_FY), "chart_fte_bar"),
+            chart_mr_digital=_fig_to_html(fig_mr_digital_ratio(summary_latest, TARGET_FY), "chart_mr_digital"),
             chart_monthly=_fig_to_html(fig_monthly_fte_trend(fte_df), "chart_monthly"),
             chart_fc_sc=_fig_to_html(fig_fc_sc_breakdown(fte_df), "chart_fc_sc"),
             chart_per_launch=_fig_to_html(
@@ -1134,15 +1313,20 @@ class FY2029HTMLReporter:
             table_summary=_df_to_html(
                 summary_latest.drop(columns=["fiscal_year"], errors="ignore"),
                 title=f"品目別年度FTEサマリー（{TARGET_FY}）",
-                bar_cols=["avg_required_fte", "avg_mr_fte", "avg_digital_fte"],
+                bar_cols=["avg_required_fte", "avg_mr_fte"],
             ),
             table_fc_sc=_df_to_html(fc_sc_summary, title="FC/SC医師数内訳"),
             table_ove=_df_to_html(allocation_df, title="ドナー品目別 削減FTE詳細",
                                    bar_cols=["fte_reduction"]),
             table_headcount=_df_to_html(total_fte_display, title="領域×月別 FTE過不足一覧"),
+            chart_digital_activity=_fig_to_html(fig_digital_activity(_digital_df), "chart_digital_activity"),
+            chart_digital_trend=_fig_to_html(fig_digital_trend(_digital_df), "chart_digital_trend"),
+            table_digital_summary=digital_summary_html,
             table_detail=_df_to_html(detail_df, title="全品目×全月 詳細FTE"),
             current_cs=CURRENT_MR_COUNT["CS"],
             current_ps=CURRENT_MR_COUNT["PS"],
+            target_fy=TARGET_FY,
+            fy_range_display=fy_range_display,
         )
 
         out_path = self.output_dir / filename
