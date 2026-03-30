@@ -152,7 +152,18 @@ def load_data():
     BASE = Path(__file__).parent
 
     # ---- 活動データ ----
-    activity_data = pd.read_csv(BASE / "activity_data.csv")
+    # 新スキーマ: activity_date, facility_id, doctor_id, product_id, activity_type（1行=1活動）
+    # FTE計算モジュールが期待する旧スキーマ（activity_ym, doctor_id, product_id, activity_count）に変換
+    _act_raw = pd.read_csv(BASE / "activity_data.csv")
+    if "activity_date" in _act_raw.columns and "activity_ym" not in _act_raw.columns:
+        _act_raw["activity_ym"] = _act_raw["activity_date"].str[:7]
+        activity_data = (
+            _act_raw.groupby(["activity_ym", "product_id", "doctor_id"])
+            .size()
+            .reset_index(name="activity_count")
+        )
+    else:
+        activity_data = _act_raw
 
     # ---- 医師属性 ----
     doctor_attr = pd.read_csv(BASE / "doctor_attr.csv")

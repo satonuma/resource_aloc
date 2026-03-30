@@ -623,6 +623,7 @@
   </div>
 
   <div class="nav-section">概要</div>
+  <a href="#summary"  class="nav-link" style="background:rgba(255,255,255,0.08);font-weight:700;"><span class="nav-num">★</span>ロジック要約</a>
   <a href="#overview" class="nav-link"><span class="nav-num">—</span>システム全体像</a>
   <a href="#inputs"   class="nav-link"><span class="nav-num">—</span>入力データ</a>
 
@@ -673,6 +674,163 @@
   </div>
 
   <div class="content">
+
+    <!-- ===== ロジック要約（エグゼクティブサマリー）===== -->
+    <section class="section" id="summary">
+      <div class="section-header">
+        <div class="section-num" style="background:var(--green);">★</div>
+        <h2>ひとめでわかる最適FTE推定ロジック</h2>
+      </div>
+      <div class="section-desc">
+        MR人員（FTE）の最適配分は、以下の問いに答えるシステムです。<br>
+        <strong>「CS 380名・PS 45名というヘッドカウント制約の中で、どの品目に何人のMRを月ごとに割り当てれば売上が最大になるか？」</strong>
+      </div>
+
+      <!-- 目的と入力 -->
+      <div class="card" style="margin-bottom:20px;">
+        <div class="card-title">目的と主な入力データ</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div>
+            <div style="font-size:12px;font-weight:700;color:var(--blue);margin-bottom:8px;">目的</div>
+            <ul style="font-size:13px;line-height:2;padding-left:18px;">
+              <li>品目×月別の最適 MR 投入量（FTE）を算出</li>
+              <li>ヘッドカウント制約内で売上最大化の配分を決定</li>
+              <li>新発売品の立ち上げ投資と既存品目の最適縮小を両立</li>
+            </ul>
+          </div>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:var(--blue);margin-bottom:8px;">主な入力データ</div>
+            <ul style="font-size:13px;line-height:2;padding-left:18px;">
+              <li><strong>活動実績</strong>（〜2026/3/31）: 医師ID・施設・訪問頻度</li>
+              <li><strong>品目マスタ</strong>: 発売日・LOE・患者数・適応数</li>
+              <li><strong>MMM出力</strong>: Hill応答曲線パラメータ・Adstock減衰率</li>
+              <li><strong>FC/SC設定</strong>: 品目ペア・担当比率</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- 7ステップ フロー -->
+      <div class="card">
+        <div class="card-title">計算の流れ ― 7ステップ</div>
+        <div style="display:flex;flex-direction:column;gap:0;">
+
+          <div style="display:flex;align-items:stretch;gap:0;">
+            <div style="display:flex;flex-direction:column;align-items:center;min-width:40px;">
+              <div style="width:32px;height:32px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;">1</div>
+              <div style="width:2px;flex:1;background:var(--gray-200);margin:4px 0;"></div>
+            </div>
+            <div style="padding:4px 16px 16px;flex:1;">
+              <div style="font-weight:700;font-size:14px;margin-bottom:4px;">ターゲット医師数の算出</div>
+              <div style="font-size:13px;color:var(--gray-500);line-height:1.7;">
+                活動実績（〜2026/3）から施設カバレッジを推定し、品目ごとの訪問対象医師数を決定する。
+                新発売品は参照品（類似品目）の医師数を基準に推計。
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:stretch;gap:0;">
+            <div style="display:flex;flex-direction:column;align-items:center;min-width:40px;">
+              <div style="width:32px;height:32px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;">2</div>
+              <div style="width:2px;flex:1;background:var(--gray-200);margin:4px 0;"></div>
+            </div>
+            <div style="padding:4px 16px 16px;flex:1;">
+              <div style="font-weight:700;font-size:14px;margin-bottom:4px;">FC / SC 分割</div>
+              <div style="font-size:13px;color:var(--gray-500);line-height:1.7;">
+                MR は複数品目を同一訪問で担当する（セカンドコール）。
+                品目間の医師被り率を計算し、主担当（FC）と同行担当（SC）に分割。
+                SCのFTEコストはFCの10%のみ計上（同一訪問内で追加時間が少ないため）。
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:stretch;gap:0;">
+            <div style="display:flex;flex-direction:column;align-items:center;min-width:40px;">
+              <div style="width:32px;height:32px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;">3</div>
+              <div style="width:2px;flex:1;background:var(--gray-200);margin:4px 0;"></div>
+            </div>
+            <div style="padding:4px 16px 16px;flex:1;">
+              <div style="font-weight:700;font-size:14px;margin-bottom:4px;">訪問頻度の推定（ライフサイクル補正）</div>
+              <div style="font-size:13px;color:var(--gray-500);line-height:1.7;">
+                実績ベースの月次訪問頻度に、ライフサイクル段階に応じた補正を乗算。
+                <code style="background:var(--sky);padding:1px 5px;border-radius:3px;font-size:12px;">発売後12ヶ月以内: ×1.3</code>
+                <code style="background:var(--amber-light);padding:1px 5px;border-radius:3px;font-size:12px;">LOE前12ヶ月: ×0.7</code>
+                <code style="background:var(--red-light);padding:1px 5px;border-radius:3px;font-size:12px;">LOE後: ×0.3</code>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:stretch;gap:0;">
+            <div style="display:flex;flex-direction:column;align-items:center;min-width:40px;">
+              <div style="width:32px;height:32px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;">4</div>
+              <div style="width:2px;flex:1;background:var(--gray-200);margin:4px 0;"></div>
+            </div>
+            <div style="padding:4px 16px 16px;flex:1;">
+              <div style="font-weight:700;font-size:14px;margin-bottom:4px;">MR / デジタル比率の推定</div>
+              <div style="font-size:13px;color:var(--gray-500);line-height:1.7;">
+                MMMの出力するAdstock減衰パラメータから各チャネルの限界応答を計算し、
+                MR活動とデジタル活動の最適比率を品目ごとに推定。
+                減衰が遅い（効果が長続きする）チャネルほど、デジタル比率が高くなる傾向。
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:stretch;gap:0;">
+            <div style="display:flex;flex-direction:column;align-items:center;min-width:40px;">
+              <div style="width:32px;height:32px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;">5</div>
+              <div style="width:2px;flex:1;background:var(--gray-200);margin:4px 0;"></div>
+            </div>
+            <div style="padding:4px 16px 16px;flex:1;">
+              <div style="font-weight:700;font-size:14px;margin-bottom:4px;">FTE 算出（コア計算）</div>
+              <div style="font-size:13px;color:var(--gray-500);line-height:1.7;">
+                <code style="background:var(--green-light);padding:2px 8px;border-radius:4px;font-size:12px;display:inline-block;margin:4px 0;">
+                  FTE = ターゲット医師数 × 訪問頻度[回/月] × MR比率 ÷（稼働日[20日] × コール/日[CS:2.5 / PS:1.5]）
+                </code><br>
+                FCとSCのFTEを別々に算出し、合算して品目×月別の必要FTEを得る。
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:stretch;gap:0;">
+            <div style="display:flex;flex-direction:column;align-items:center;min-width:40px;">
+              <div style="width:32px;height:32px;border-radius:50%;background:var(--amber);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;">6</div>
+              <div style="width:2px;flex:1;background:var(--gray-200);margin:4px 0;"></div>
+            </div>
+            <div style="padding:4px 16px 16px;flex:1;">
+              <div style="font-weight:700;font-size:14px;margin-bottom:4px;">新発売品への FTE 移動</div>
+              <div style="font-size:13px;color:var(--gray-500);line-height:1.7;">
+                OVE・Zaso・WSA の発売時に必要なFTEを、既存品目から削出する。
+                削出量は MMMの Hill 関数から算出した限界ROIの逆数に比例して配分
+                （ROIが低い品目ほど多く削る）。ランチカーブで発売後の月次投資量を制御。
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:stretch;gap:0;">
+            <div style="display:flex;flex-direction:column;align-items:center;min-width:40px;">
+              <div style="width:32px;height:32px;border-radius:50%;background:var(--purple);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;">7</div>
+            </div>
+            <div style="padding:4px 16px 0;flex:1;">
+              <div style="font-weight:700;font-size:14px;margin-bottom:4px;">正規化・ROI最大化最適配分</div>
+              <div style="font-size:13px;color:var(--gray-500);line-height:1.7;">
+                ① <strong>ヘッドカウント正規化</strong>: 毎月の領域合計がCS 380名・PS 45名になるよう品目間比率を保ちながらスケーリング。<br>
+                ② <strong>ROI最大化配分</strong>: MMMのHill応答曲線の一次微分（限界収益）が全品目で均等になる点が最適配分。
+                この「等限界収益の原則」により、追加の1 FTEが最も多くの売上を生む品目に自動的に集中する。
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /flex -->
+      </div><!-- /card -->
+
+      <div class="note">
+        <span class="note-icon">💡</span>
+        <span>
+          <strong>活動実績データの期間:</strong> 訪問頻度・FC/SC被り率の推定に使用する活動データは <strong>〜2026年3月31日</strong> の実績値を使用。
+          納入実績データも同期間。FY2026以降の予測値は <code>sales_forecast.csv</code> で管理し、ROI最適配分の基準とする。
+        </span>
+      </div>
+    </section>
 
     <!-- ===== システム全体像 ===== -->
     <section class="section" id="overview">

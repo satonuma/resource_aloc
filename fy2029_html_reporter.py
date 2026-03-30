@@ -812,6 +812,56 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
 <div class="container">
 
+  <!-- ロジック概要 -->
+  <section style="background:linear-gradient(135deg,#1a3560 0%,#2563eb 100%);color:#fff;border:none;">
+    <h2 style="border-left-color:#93c5fd;color:#fff;">最適FTE推定ロジック ― このレポートの読み方</h2>
+    <p style="font-size:13px;line-height:1.8;margin-bottom:18px;opacity:0.92;">
+      本システムは「CS {current_cs}名 / PS {current_ps}名」という固定ヘッドカウントの中で、
+      <strong>各品目への月別MR投入量（FTE）が最大売上を生むよう配分</strong>することを目的とします。<br>
+      活動実績・品目属性・MMMパラメータを入力とし、以下の7ステップで最適FTEを算出します。
+    </p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-bottom:10px;">
+      <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:14px 16px;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;opacity:0.7;margin-bottom:6px;">STEP 1</div>
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">ターゲット医師数の算出</div>
+        <div style="font-size:12px;opacity:0.82;">活動実績から施設カバレッジを推定し、品目ごとの訪問対象医師数を決定</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:14px 16px;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;opacity:0.7;margin-bottom:6px;">STEP 2</div>
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">FC / SC 分割</div>
+        <div style="font-size:12px;opacity:0.82;">医師被り率で主訪問（FC）と同行訪問（SC）に分割。SCコスト = FC × 0.1</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:14px 16px;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;opacity:0.7;margin-bottom:6px;">STEP 3</div>
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">訪問頻度の推定</div>
+        <div style="font-size:12px;opacity:0.82;">実績ベース頻度にライフサイクル補正（発売初期×1.3 / LOE前後×0.7→0.3）を適用</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:14px 16px;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;opacity:0.7;margin-bottom:6px;">STEP 4</div>
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">MR / デジタル比率</div>
+        <div style="font-size:12px;opacity:0.82;">MMMの減衰パラメータ（Adstock半減期・Hill応答曲線）の限界応答比からMR担当割合を推定</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:14px 16px;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;opacity:0.7;margin-bottom:6px;">STEP 5</div>
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">FTE 算出（コア計算）</div>
+        <div style="font-size:12px;opacity:0.82;">FTE = ターゲット医師数 × 訪問頻度 × MR比率 ÷（稼働日 × コール/日）</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:14px 16px;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;opacity:0.7;margin-bottom:6px;">STEP 6</div>
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">新発売品への FTE 移動</div>
+        <div style="font-size:12px;opacity:0.82;">OVE / Zaso / WSA の必要FTEを、限界ROIの低い既存品目から比例配分で削出</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:14px 16px;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;opacity:0.7;margin-bottom:6px;">STEP 7</div>
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">正規化・ROI最適配分</div>
+        <div style="font-size:12px;opacity:0.82;">ヘッドカウント制約でスケーリング後、等限界収益配分（Hill関数の傾きが均等になる点）で最終配分を決定</div>
+      </div>
+    </div>
+    <p style="font-size:11px;opacity:0.6;text-align:right;margin-top:4px;">
+      詳細ロジックは fte_logic_document.html を参照
+    </p>
+  </section>
+
   <!-- KPI バナー -->
   <div class="kpi-row">
     {kpi_cards}
