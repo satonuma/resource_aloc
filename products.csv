@@ -1,5 +1,6 @@
 product_id,area,is_new,launch_ym,loe_ym,estimated_patients,num_indications,reference_product,indication_add_ym,indication_fte_boost,indication_boost_months,drug_class,post_loe_factor
-GLI,CS,False,2018-04,2099-01,50000,3,,,,,small_molecule,0.00
+GLI,CS,False,2018-04,2099-01,50000,3,,,,,plasma_derived,0.90
+GLO,CS,True,2026-02,2027-03,50000,1,GLI,,,,plasma_derived,0.00
 CUV,CS,False,2020-10,2099-01,30000,2,,,,,small_molecule,0.00
 HYQ,CS,False,2022-04,2099-01,20000,2,,,,,small_molecule,0.00
 INT,CS,False,2019-07,2026-12,80000,4,,,,,small_molecule,0.00

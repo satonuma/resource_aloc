@@ -209,9 +209,25 @@ def load_data():
     sales_forecast = pd.read_csv(BASE / "sales_forecast.csv")
     delivery_data  = pd.read_csv(BASE / "delivery_data.csv")
 
+    # ---- 供給制限スケジュール（supply_restriction.csv）----
+    supply_path = BASE / "supply_restriction.csv"
+    supply_restrictions: Dict[str, list] = {}
+    if supply_path.exists():
+        sr_df = pd.read_csv(supply_path, dtype=str)
+        for _, row in sr_df.iterrows():
+            pid = row["product_id"].strip()
+            supply_restrictions.setdefault(pid, []).append({
+                "start_ym": normalize_ym(row["restriction_start_ym"]),
+                "end_ym":   normalize_ym(row["restriction_end_ym"]),
+                "factor":   float(row["restriction_factor"]),
+            })
+        n = sum(len(v) for v in supply_restrictions.values())
+        print(f"       → 供給制限: {n} 件読み込み ({', '.join(supply_restrictions.keys())})")
+
     return dict(
-        activity_data      = activity_data,
-        doctor_attr        = doctor_attr,
+        activity_data        = activity_data,
+        doctor_attr          = doctor_attr,
+        supply_restrictions  = supply_restrictions,
         product_info       = None,          # products.csv で管理（main()で上書き）
         decay_params_df    = decay_params_df,
         activity_set_df    = activity_set_df,
@@ -404,6 +420,10 @@ def main():
         0.50, 0.50, 0.50, 0.50, 0.50, 0.50,   # 79〜84ヶ月
     ]
 
+    # GLOランチカーブ（FY2026-02発売, 13ヶ月 = FY2026末まで）
+    # 既知の海外製品を代替品として導入するため、立ち上げ教育は不要 → フラット
+    glo_ramp_up = [1.00] * 14  # 余裕をもって14ヶ月分（2026-02〜2027-03）
+
     calculator = FY2029FTECalculator(
         product_configs=product_configs,
         target_doctor_calc=target_doctor_calc,
@@ -413,11 +433,15 @@ def main():
         product_info=data["product_info"],
         current_activities=data["current_activities"],
         frequency_mode="lifecycle_adjusted",
-        new_product_ramp_up={"OVE": ove_ramp_up, "Zaso": zaso_ramp_up, "WSA": wsa_ramp_up},
+        new_product_ramp_up={
+            "OVE": ove_ramp_up, "Zaso": zaso_ramp_up, "WSA": wsa_ramp_up,
+            "GLO": glo_ramp_up,   # 供給制限代替品: FY2026のみ活動
+        },
         reference_products=csv_reference_products,  # products.csvのreference_product列
         target_months=ALL_MONTHS,  # FY2026〜2035の120ヶ月
         mr_ratio_params=mr_ratio_params,            # mr_ratio_params.csv から読み込み
         competition_schedule=competition_schedule,  # competitor_schedule.csv から読み込み
+        supply_restrictions=data["supply_restrictions"],  # 供給制限（GLI FY2026等）
     )
 
     # ---- 4. FTE 算出（FY2026〜FY2029）----

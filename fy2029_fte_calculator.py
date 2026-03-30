@@ -1056,6 +1056,9 @@ class FY2029FTECalculator:
         competition_schedule: Optional[Dict[str, List[Dict]]] = None,
         # {product_id: [{"launch_ym": "2028-04", "intensity": 1.25, "boost_months": 18}, ...]}
         # 競合品発売スケジュール。競合が多い品目ほど高いFTEを割り当てる。
+        supply_restrictions: Optional[Dict[str, List[Dict]]] = None,
+        # {product_id: [{"start_ym": "2026-02", "end_ym": "2027-03", "factor": 0.65}, ...]}
+        # 供給制限スケジュール。制限期間中はFTEを factor 倍に削減する。
     ) -> None:
         self.configs = {p.product_id: p for p in product_configs}
         self.target_doctor_calc = target_doctor_calc
@@ -1069,6 +1072,7 @@ class FY2029FTECalculator:
         self.new_product_ramp_up = new_product_ramp_up or {}
         self.reference_products = reference_products or {}
         self.competition_schedule = competition_schedule or {}
+        self.supply_restrictions = supply_restrictions or {}
         self.mr_ratio_params = {**DEFAULT_MR_RATIO_PARAMS, **(mr_ratio_params or {})}
 
     @property
@@ -1120,6 +1124,18 @@ class FY2029FTECalculator:
             boost = 1.0 + (comp["intensity"] - 1.0) * (1.0 - t)
             max_boost = max(max_boost, boost)
         return max_boost
+
+    def _supply_restriction_factor(self, pid: str, month: str) -> float:
+        """
+        供給制限期間中のFTE削減係数を返す（制限なし = 1.0）。
+
+        供給制限中は処方が制限されるため、MR訪問の効果が低下する。
+        FTEを factor 倍（例: 0.65）に削減してリソースを代替品に振り向ける。
+        """
+        for r in self.supply_restrictions.get(pid, []):
+            if r["start_ym"] <= month <= r["end_ym"]:
+                return float(r["factor"])
+        return 1.0
 
     def _fte_based_mr_ratio(self, base_fte: float, area_avg: float) -> float:
         """
@@ -1193,7 +1209,9 @@ class FY2029FTECalculator:
                 boost = self._indication_boost(config, month)
                 # 競合品ブースト（競合発売直後に活動強化が必要）
                 comp_boost = self._competition_boost(pid, month)
-                base_fte *= boost * comp_boost
+                # 供給制限ファクター（例: GLI FY2026 供給不足 → 0.65倍）
+                supply_factor = self._supply_restriction_factor(pid, month)
+                base_fte *= boost * comp_boost * supply_factor
 
                 pass1_records.append({
                     "product_id":      pid,
