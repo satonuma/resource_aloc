@@ -704,25 +704,29 @@ class ActivityFrequencyEstimator:
 
     def _lifecycle_adj(self, product_id: str, month: str) -> float:
         """
-        連続的なライフサイクル調整係数。離散ステップではなく滑らかな曲線で変化する。
+        連続的なライフサイクル調整係数。品目の薬剤クラスに応じて LOE 周辺の
+        カーブ形状が変わる（post_loe_factor で統一的にパラメータ化）。
 
-        フェーズ別の係数推移（小分子 / post_loe_factor=0.0 のケース）:
+        フェーズ別の係数推移:
           フェーズ1 - ローンチ期 (0〜18ヶ月):
-            0.80 → 1.05 (立ち上げ投資高め、徐々にピークへ)
+            0.80 → 1.05（全品目共通）
           フェーズ2 - 成長期 (18〜36ヶ月):
-            1.05 → 1.00 (ピーク付近で安定)
+            1.05 → 1.00（全品目共通）
           フェーズ3 - 成熟〜低下期 (36ヶ月〜LOE36ヶ月前):
-            1.00 → 0.80 (緩やかに低下)
+            1.00 → phase3_floor  where phase3_floor = max(0.80, post_loe_factor)
+              小分子:     1.00 → 0.80（緩やかに低下）
+              バイオ/ENT: 1.00 → 0.80（同左）
+              血漿分画:   1.00 → 0.90（ほぼ横ばい）
           フェーズ4 - LOE直前期 (LOE36ヶ月前〜LOE):
-            0.80 → loe_floor (急速低下、資源を新品目へ移行)
-              loe_floor = max(0.35, post_loe_factor)
+            phase3_floor → loe_floor  where loe_floor = max(0.35, post_loe_factor)
+              小分子:     0.80 → 0.35（急速低下）
+              バイオ/ENT: 0.80 → 0.55（緩慢に低下）
+              血漿分画:   0.90 → 0.90（ほぼフラット、浸食なし）
           フェーズ5 - LOE後:
-            post_loe_factor (バイオ品: 0.55 等、小分子: 0.0)
-
-        バイオシミラー耐性品（post_loe_factor > 0）の挙動:
-          LOE後も post_loe_factor 相当の活動を維持。
-          フェーズ4の着地点も高め（loe_floor = post_loe_factor）で
-          LOE前後の減少幅を抑制する。
+            post_loe_factor を維持
+              小分子:     0.0（MR活動終了）
+              バイオ/ENT: 0.55（バイオシミラー参入後も一定の活動を維持）
+              血漿分画:   0.90（特許切れても市場浸食がほぼないため活動継続）
         """
         info = self.product_info[
             self.product_info["product_id"] == product_id
@@ -734,37 +738,39 @@ class ActivityFrequencyEstimator:
         loe_months = float(row["loe_months"])
         loe_remaining = loe_months - elapsed
 
-        # post_loe_factor: バイオ品はLOE後も一定活動を維持
+        # post_loe_factor: LOE後に維持するライフサイクル係数
+        #   小分子=0.0 / バイオ=0.55 / 血漿分画=0.90
         post_loe = float(row.get("post_loe_factor", 0.0)) if "post_loe_factor" in row.index else 0.0
 
-        # LOE後: バイオ品は post_loe_factor を維持、小分子は 0
+        # フェーズ5 - LOE後
         if loe_remaining <= 0:
             return post_loe
 
-        # フェーズ4の着地点: バイオ品は高め（LOE直前〜直後の連続性を保つ）
-        loe_floor = max(0.35, post_loe)
+        # フェーズ3〜4 の境界点を品目クラスに応じて設定
+        loe_floor    = max(0.35, post_loe)   # フェーズ4の着地点（LOE直前の最低値）
+        phase3_floor = max(0.80, loe_floor)  # フェーズ3の着地点 = フェーズ4の開始点
 
-        # フェーズ4: LOE直前36ヶ月 → loe_floor へ低下
+        # フェーズ4: LOE直前36ヶ月 → phase3_floor → loe_floor へ変化
         if loe_remaining <= 36:
             t = loe_remaining / 36.0
-            return loe_floor + (0.80 - loe_floor) * t  # 36ヶ月前=0.80, LOE=loe_floor
+            return loe_floor + (phase3_floor - loe_floor) * t
 
         # フェーズ1: ローンチ後18ヶ月以内 → 0.80 から 1.05 へ線形上昇
         if elapsed <= 18:
             t = elapsed / 18.0
-            return 0.80 + 0.25 * t  # 発売=0.80, 18ヶ月後=1.05
+            return 0.80 + 0.25 * t
 
         # フェーズ2: 18〜36ヶ月 → 1.05 から 1.00 へ緩やかに降下
         if elapsed <= 36:
             t = (elapsed - 18) / 18.0
-            return 1.05 - 0.05 * t  # 18ヶ月=1.05, 36ヶ月=1.00
+            return 1.05 - 0.05 * t
 
-        # フェーズ3: 成熟期 (36ヶ月〜LOE36ヶ月前) → 1.00 から 0.80 へ線形低下
-        mature_start  = 36.0
-        mature_end    = max(loe_months - 36.0, mature_start + 1.0)
+        # フェーズ3: 成熟期 (36ヶ月〜LOE36ヶ月前) → 1.00 から phase3_floor へ線形低下
+        mature_start = 36.0
+        mature_end   = max(loe_months - 36.0, mature_start + 1.0)
         if elapsed < mature_end:
             t = (elapsed - mature_start) / (mature_end - mature_start)
-            return 1.00 - 0.20 * t  # 36ヶ月=1.00, mature_end=0.80
+            return 1.00 - (1.00 - phase3_floor) * t
         else:
             return 0.80
 
