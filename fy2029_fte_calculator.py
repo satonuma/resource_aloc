@@ -348,6 +348,8 @@ class ProductConfig:
     indication_add_ym: Optional[str] = None   # 効能追加年月 "YYYY-MM"
     indication_fte_boost: float = 1.0         # 効能追加時のFTEブースト倍率 (例: 1.30)
     indication_boost_months: int = 0          # ブースト持続月数
+    # バイオシミラー浸食耐性パラメータ（省略可）
+    post_loe_factor: float = 0.0  # LOE後に維持するライフサイクル係数（0.0=小分子完全停止, 0.55=バイオ品ENT等）
 
 
 @dataclass
@@ -704,7 +706,7 @@ class ActivityFrequencyEstimator:
         """
         連続的なライフサイクル調整係数。離散ステップではなく滑らかな曲線で変化する。
 
-        フェーズ別の係数推移:
+        フェーズ別の係数推移（小分子 / post_loe_factor=0.0 のケース）:
           フェーズ1 - ローンチ期 (0〜18ヶ月):
             0.80 → 1.05 (立ち上げ投資高め、徐々にピークへ)
           フェーズ2 - 成長期 (18〜36ヶ月):
@@ -712,9 +714,15 @@ class ActivityFrequencyEstimator:
           フェーズ3 - 成熟〜低下期 (36ヶ月〜LOE36ヶ月前):
             1.00 → 0.80 (緩やかに低下)
           フェーズ4 - LOE直前期 (LOE36ヶ月前〜LOE):
-            0.80 → 0.35 (急速低下、資源を新品目へ移行)
+            0.80 → loe_floor (急速低下、資源を新品目へ移行)
+              loe_floor = max(0.35, post_loe_factor)
           フェーズ5 - LOE後:
-            0.30 (維持最低限)
+            post_loe_factor (バイオ品: 0.55 等、小分子: 0.0)
+
+        バイオシミラー耐性品（post_loe_factor > 0）の挙動:
+          LOE後も post_loe_factor 相当の活動を維持。
+          フェーズ4の着地点も高め（loe_floor = post_loe_factor）で
+          LOE前後の減少幅を抑制する。
         """
         info = self.product_info[
             self.product_info["product_id"] == product_id
@@ -726,14 +734,20 @@ class ActivityFrequencyEstimator:
         loe_months = float(row["loe_months"])
         loe_remaining = loe_months - elapsed
 
-        # LOE後: MR活動終了（後発品参入でFTE=0）
-        if loe_remaining <= 0:
-            return 0.0
+        # post_loe_factor: バイオ品はLOE後も一定活動を維持
+        post_loe = float(row.get("post_loe_factor", 0.0)) if "post_loe_factor" in row.index else 0.0
 
-        # フェーズ4: LOE直前36ヶ月 → 急速低下 (0.80 → 0.35)
+        # LOE後: バイオ品は post_loe_factor を維持、小分子は 0
+        if loe_remaining <= 0:
+            return post_loe
+
+        # フェーズ4の着地点: バイオ品は高め（LOE直前〜直後の連続性を保つ）
+        loe_floor = max(0.35, post_loe)
+
+        # フェーズ4: LOE直前36ヶ月 → loe_floor へ低下
         if loe_remaining <= 36:
             t = loe_remaining / 36.0
-            return 0.35 + 0.45 * t  # 36ヶ月前=0.80, LOE=0.35
+            return loe_floor + (0.80 - loe_floor) * t  # 36ヶ月前=0.80, LOE=loe_floor
 
         # フェーズ1: ローンチ後18ヶ月以内 → 0.80 から 1.05 へ線形上昇
         if elapsed <= 18:

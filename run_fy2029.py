@@ -106,6 +106,10 @@ def load_product_configs(
         ind_months_raw = row.get("indication_boost_months", 0)
         ind_months = 0 if (pd.isna(ind_months_raw) or str(ind_months_raw).strip() == "") else int(float(ind_months_raw))
 
+        # バイオシミラー耐性パラメータ（CSVに列がない場合はデフォルト 0.0）
+        post_loe_raw = row.get("post_loe_factor", 0.0)
+        post_loe = 0.0 if (pd.isna(post_loe_raw) or str(post_loe_raw).strip() == "") else float(post_loe_raw)
+
         configs.append(ProductConfig(
             product_id            = row["product_id"].strip(),
             area                  = row["area"].strip(),
@@ -117,6 +121,7 @@ def load_product_configs(
             indication_add_ym     = ind_ym if ind_ym and ind_ym.lower() not in ("", "nan", "none") else None,
             indication_fte_boost  = ind_boost,
             indication_boost_months = ind_months,
+            post_loe_factor       = post_loe,
         ))
 
         ref = str(row.get("reference_product", "")).strip()
@@ -277,6 +282,7 @@ def main():
             "loe_months":          cfg.loe_months,
             "estimated_patients":  cfg.estimated_patients,
             "num_indications":     cfg.num_indications,
+            "post_loe_factor":     cfg.post_loe_factor,
         }
         for cfg in product_configs
     ])
