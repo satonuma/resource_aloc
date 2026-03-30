@@ -319,7 +319,7 @@ def calculate_roi_optimal_fte(
 
             # LOE後/未発売品目は optimal_fte = 0
             for cfg in product_configs:
-                if cfg.area != area or cfg.product_id in active_pids:
+                if cfg.area == area and cfg.product_id not in active_pids:
                     rows.append({
                         "product_id":  cfg.product_id,
                         "area":        area,

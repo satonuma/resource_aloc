@@ -6,9 +6,6 @@ venv/
 .venv/
 *.egg-info/
 
-# Output files (large HTML/CSV)
-output/
-
 # IDE / Claude
 .claude/
 .vscode/
