@@ -11,9 +11,9 @@ REV,CS,False,2021-07,2033-07,35000,2,,,,,small_molecule,0.00
 ALC,CS,False,2023-01,2029-05,25000,2,,,,,small_molecule,0.00
 VYV,CS,False,2024-04,2033-04,20000,2,,2028-07,1.30,12,small_molecule,0.00
 VPR,CS,False,2022-10,2032-10,18000,2,,,,,small_molecule,0.00
-LVM,PS,False,2020-01,2035-01,5000,2,,,,,plasma_derived,0.90
+LVM,PS,False,2020-01,2099-01,5000,2,,,,,plasma_derived,0.90
 Zaso,CS,True,2027-04,2047-04,50000,1,ENT,,,,biologic,0.00
 WSA,CS,True,2029-04,2049-04,40000,1,LIV,,,,small_molecule,0.00
 TKZ,PS,False,2022-04,2032-04,3000,1,,,,,small_molecule,0.00
-RPL,PS,False,2023-10,2033-10,4000,2,,,,,plasma_derived,0.90
-VON,PS,False,2024-07,2034-07,3500,1,,,,,plasma_derived,0.90
+RPL,PS,False,2023-10,2099-01,4000,2,,,,,plasma_derived,0.90
+VON,PS,False,2024-07,2099-01,3500,1,,,,,plasma_derived,0.90
