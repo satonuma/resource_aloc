@@ -633,6 +633,7 @@ def main():
         raw_summary_fy=raw_summary_fy,
         per_launch_allocations=per_launch_allocations,
         digital_act_df=data["digital_act"],
+        soc_rates=soc_rates,
         frequency_mode="lifecycle_adjusted",
         filename="fy2029_fte_report.html",
     )

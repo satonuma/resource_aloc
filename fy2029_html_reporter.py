@@ -364,7 +364,7 @@ def fig_mr_digital_ratio(summary_df: pd.DataFrame, target_fy: str = "") -> go.Fi
     fy_label = f" - {target_fy}" if target_fy else ""
     fig.update_layout(
         barmode="stack",
-        title=f"品目別 MR / デジタル活動比率{fy_label}<br><sup>MMMチャネル限界効果（1回あたり増分）× ライフサイクルで算出</sup>",
+        title=f"品目別 MR / デジタル活動比率{fy_label}<br><sup>①MMM Hill総効果量比（活動数補正, W=50%）②SOC有効接触比（活動数×想起率, W=30%）③デフォルト（W=20%）＋ライフサイクル補正で算出</sup>",
         xaxis_title="比率（%）",
         xaxis=dict(range=[0, 100]),
         height=380,
@@ -977,7 +977,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:14px 16px;">
         <div style="font-size:11px;font-weight:700;letter-spacing:1px;opacity:0.7;margin-bottom:6px;">STEP 4</div>
         <div style="font-size:13px;font-weight:700;margin-bottom:4px;">MR / デジタル比率</div>
-        <div style="font-size:12px;opacity:0.82;">MMMの減衰パラメータ（Adstock半減期・Hill応答曲線）の限界応答比からMR担当割合を推定</div>
+        <div style="font-size:12px;opacity:0.82;">①MMM Hill総効果量比（活動数補正）②SOC有効接触比（活動数×想起率）③発売年数・LOE残年数の3要素を加重平均して推定</div>
       </div>
       <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:14px 16px;">
         <div style="font-size:11px;font-weight:700;letter-spacing:1px;opacity:0.7;margin-bottom:6px;">STEP 5</div>
@@ -1033,6 +1033,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div>{chart_mr_digital}</div>
     </div>
     {table_summary}
+    <h3 style="margin-top:24px;font-size:15px;color:#444;">MR / デジタル比率の算出方法（3要素加重平均）</h3>
+    <p style="font-size:13px;color:#555;line-height:1.7;margin-bottom:12px;">
+      MR比率は以下3成分の加重平均に、ライフサイクル補正を加えて算出します（最終値は30〜90%にクリップ）。<br>
+      <strong>①MMM Hill総効果量比（W=50%）</strong>：各チャネルの Hill 応答曲線による総効果量（β×x<sup>slope</sup>/(EC<sup>slope</sup>+x<sup>slope</sup>)）を MR/デジタルで比較。活動数が少ない場合の飽和効果を反映。<br>
+      <strong>②SOC有効接触比（W=30%）</strong>：月次活動数 × SOC想起率（下表）で算出した有効接触数の MR 比率。品目間で比較可能な指標。<br>
+      <strong>③デフォルト比率（W=20%）</strong>：65%（業界標準ベースライン）。<br>
+      <strong>ライフサイクル補正</strong>：発売1年未満 +15pt / 1〜2年 +8pt / 2〜3年 +3pt、LOE1年未満 −12pt / 1〜3年 −5pt / LOE後 −20pt。
+    </p>
+    {table_soc_params}
   </section>
 
   <!-- Section 2: 月次推移 -->
@@ -1151,6 +1160,7 @@ class FY2029HTMLReporter:
         raw_summary_fy: Optional[pd.DataFrame] = None,
         per_launch_allocations: Optional[Dict[str, pd.DataFrame]] = None,
         digital_act_df: Optional[pd.DataFrame] = None,
+        soc_rates: Optional[Dict[str, Dict[str, float]]] = None,
     ) -> Path:
         """
         HTMLレポートを生成してファイルに保存する。
@@ -1283,6 +1293,25 @@ class FY2029HTMLReporter:
         else:
             digital_summary_html = "<p style='color:#999;'>デジタル活動データなし</p>"
 
+        # ---- SOC パラメータテーブル ----
+        if soc_rates:
+            _soc_rows = []
+            for pid, rates in sorted(soc_rates.items()):
+                _soc_rows.append({
+                    "品目": pid,
+                    "MR想起率": rates.get("mr", 0.50),
+                    "デジタル想起率": rates.get("digital", 0.25),
+                })
+            soc_df = pd.DataFrame(_soc_rows)
+            # SOC活動数から有効接触も追加（summary_latestから引用）
+            soc_table_html = _df_to_html(
+                soc_df,
+                title="品目別 SOCパラメータ（想起率）",
+                highlight_cols=["MR想起率", "デジタル想起率"],
+            )
+        else:
+            soc_table_html = "<p style='color:#999;'>SOCデータなし</p>"
+
         # ---- HTMLレンダリング ----
         _opt_df = optimal_fte_df if optimal_fte_df is not None else pd.DataFrame()
 
@@ -1322,6 +1351,7 @@ class FY2029HTMLReporter:
             chart_digital_activity=_fig_to_html(fig_digital_activity(_digital_df), "chart_digital_activity"),
             chart_digital_trend=_fig_to_html(fig_digital_trend(_digital_df), "chart_digital_trend"),
             table_digital_summary=digital_summary_html,
+            table_soc_params=soc_table_html,
             table_detail=_df_to_html(detail_df, title="全品目×全月 詳細FTE"),
             current_cs=CURRENT_MR_COUNT["CS"],
             current_ps=CURRENT_MR_COUNT["PS"],
