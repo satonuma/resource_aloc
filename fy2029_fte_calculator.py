@@ -389,9 +389,11 @@ class TargetDoctorCalculator:
         mindscape_segments_df: Optional[pd.DataFrame] = None,
         activity_data: Optional[pd.DataFrame] = None,
         doctor_tiers: Optional[Dict[str, dict]] = None,
+        yearly_doctor_counts: Optional[Dict[Tuple[str, str], Tuple[int, int]]] = None,
     ) -> None:
         self.base_target_doctors = base_target_doctors
         self.doctor_tiers = doctor_tiers or {}
+        self.yearly_doctor_counts = yearly_doctor_counts or {}
         self.product_info = product_info
         self.mindscape_segments_df = mindscape_segments_df if mindscape_segments_df is not None else pd.DataFrame()
         self.activity_data = activity_data if activity_data is not None else pd.DataFrame()
@@ -400,24 +402,47 @@ class TargetDoctorCalculator:
     # 既存品目用
     # ----------------------------------------------------------
 
-    def get_doctor_tier(self, product_id: str) -> Optional[dict]:
+    def get_doctor_tier(self, product_id: str, month: Optional[str] = None) -> Optional[dict]:
         """
         R/W医師ティアデータを返す。なければ None。
 
+        month を指定すると target_doctor_yearly.csv の年度別データを優先参照。
         返り値: {"r_doctors": int, "w_doctors": int,
                  "r_visit_freq": float, "w_visit_freq": float}
         """
-        return self.doctor_tiers.get(product_id)
+        base = self.doctor_tiers.get(product_id)
+        if base is None:
+            return None
 
-    def get_base_target_doctors(self, product_id: str) -> int:
+        if month and self.yearly_doctor_counts:
+            fy = month_to_fy(month)
+            yearly = self.yearly_doctor_counts.get((product_id, fy))
+            if yearly is not None:
+                return {
+                    "r_doctors":    yearly[0],
+                    "w_doctors":    yearly[1],
+                    "r_visit_freq": base["r_visit_freq"],
+                    "w_visit_freq": base["w_visit_freq"],
+                }
+
+        return base
+
+    def get_base_target_doctors(self, product_id: str, month: Optional[str] = None) -> int:
         """
         品目のベースターゲット医師数（R+W合計）を返す。
 
         優先順位:
-        1. doctor_tiers の R+W 合計（target_doctors.csv 新形式）
-        2. base_target_doctors（旧形式フォールバック）
-        3. activity_data の直近12ヶ月ユニーク医師数
+        1. yearly_doctor_counts（年度別指定があれば優先）
+        2. doctor_tiers の R+W 合計（target_doctors.csv 新形式）
+        3. base_target_doctors（旧形式フォールバック）
+        4. activity_data の直近12ヶ月ユニーク医師数
         """
+        if month and self.yearly_doctor_counts:
+            fy = month_to_fy(month)
+            yearly = self.yearly_doctor_counts.get((product_id, fy))
+            if yearly is not None:
+                return yearly[0] + yearly[1]
+
         tier = self.doctor_tiers.get(product_id)
         if tier:
             return tier["r_doctors"] + tier["w_doctors"]
@@ -470,11 +495,11 @@ class TargetDoctorCalculator:
                 config, months, ramp_up_curve or [], reference_product_id
             )
 
-        base = self.get_base_target_doctors(product_id)
-        records = [
-            {"product_id": product_id, "month": m, "target_doctors": base}
-            for m in months
-        ]
+        # Build per-month target doctors using yearly override when available
+        records = []
+        for m in months:
+            base = self.get_base_target_doctors(product_id, month=m)
+            records.append({"product_id": product_id, "month": m, "target_doctors": base})
         return pd.DataFrame(records)
 
     # ----------------------------------------------------------
@@ -1250,7 +1275,7 @@ class FY2029FTECalculator:
                 )
 
                 # ---- R/W 医師ティアによる required_calls 計算 ----
-                tier = self.target_doctor_calc.get_doctor_tier(pid)
+                tier = self.target_doctor_calc.get_doctor_tier(pid, month=month)
                 if tier and total_target > 0:
                     # R/W比率を維持しつつ ramp-up 等の総数変動に追随
                     total_base = tier["r_doctors"] + tier["w_doctors"]

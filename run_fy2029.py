@@ -238,6 +238,16 @@ def load_data():
     if not mindscape_segments_df.empty:
         print(f"       → mindscape_segments.csv: {len(mindscape_segments_df['product_id'].unique())} 品目のセグメントデータ読み込み")
 
+    # ---- 年度別ターゲット医師数（target_doctor_yearly.csv）----
+    yearly_path = BASE / "target_doctor_yearly.csv"
+    yearly_doctor_counts: Dict[Tuple[str, str], Tuple[int, int]] = {}
+    if yearly_path.exists():
+        yr_df = pd.read_csv(yearly_path)
+        for _, row in yr_df.iterrows():
+            key = (str(row["product_id"]).strip(), str(row["fiscal_year"]).strip())
+            yearly_doctor_counts[key] = (int(row["r_doctors"]), int(row["w_doctors"]))
+        print(f"       → target_doctor_yearly.csv: {len(yearly_doctor_counts)} 件の年度別データ読み込み")
+
     # ---- 売上予測・納入データ（将来分析用として保持）----
     sales_forecast = pd.read_csv(BASE / "sales_forecast.csv")
     delivery_data  = pd.read_csv(BASE / "delivery_data.csv")
@@ -277,9 +287,10 @@ def load_data():
         target_doctor_lists= target_doctor_lists,
         current_activities = current_activities,
         fy2026_apr_fte       = fy2026_apr_fte,
-        base_target_doctors  = base_target_doctors,
-        doctor_tiers         = doctor_tiers,
-        mindscape_segments_df= mindscape_segments_df,
+        base_target_doctors    = base_target_doctors,
+        doctor_tiers           = doctor_tiers,
+        yearly_doctor_counts   = yearly_doctor_counts,
+        mindscape_segments_df  = mindscape_segments_df,
         sales_forecast     = sales_forecast,
         delivery_data      = delivery_data,
         fc_ratios          = fc_ratios,
@@ -350,6 +361,7 @@ def main():
         mindscape_segments_df = data["mindscape_segments_df"],
         activity_data         = data["activity_data"],   # フォールバック用
         doctor_tiers          = data["doctor_tiers"],    # R/W ティア
+        yearly_doctor_counts  = data["yearly_doctor_counts"],  # 年度別医師数
     )
 
     fc_sc_allocator = FCScAllocator(

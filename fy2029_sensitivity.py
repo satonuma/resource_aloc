@@ -62,6 +62,7 @@ class ScaledTargetDoctorCalculator(TargetDoctorCalculator):
         self.base_target_doctors   = base_calc.base_target_doctors
         self.mindscape_segments_df = base_calc.mindscape_segments_df
         self.doctor_tiers          = base_calc.doctor_tiers
+        self.yearly_doctor_counts  = base_calc.yearly_doctor_counts
 
     def calculate(self, product_id, months, config=None, ramp_up_curve=None,
                   reference_product_id=None):
@@ -74,12 +75,12 @@ class ScaledTargetDoctorCalculator(TargetDoctorCalculator):
         df["target_doctors"] = (df["target_doctors"] * self.scale).round(0).astype(int)
         return df
 
-    def get_base_target_doctors(self, product_id):
-        base = self._base.get_base_target_doctors(product_id)
+    def get_base_target_doctors(self, product_id, month=None):
+        base = self._base.get_base_target_doctors(product_id, month=month)
         return int(base * self.scale)
 
-    def get_doctor_tier(self, product_id):
-        tier = self._base.get_doctor_tier(product_id)
+    def get_doctor_tier(self, product_id, month=None):
+        tier = self._base.get_doctor_tier(product_id, month=month)
         if tier is None:
             return None
         return {
