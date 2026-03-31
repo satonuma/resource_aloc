@@ -492,11 +492,13 @@ class MMMParameterAdjuster:
         return rows
 
     def response_curve_points(
-        self, product_id: str, fiscal_year: int, channel: str, n_points: int = 50
+        self, product_id: str, fiscal_year: int, channel: str,
+        n_points: int = 50, x_max: Optional[float] = None,
     ) -> List[Tuple[float, float]]:
         """
         指定チャネルの調整済みレスポンスカーブ点列を返す（x=活動量, y=売上効果）。
         slope_m=1固定のミカエリス-メンテン型。
+        x_max を指定すると横軸範囲を固定できる（複数年度を同一軸で比較する場合）。
         """
         params = self.get_adjusted_params(product_id, fiscal_year)
         row = params[params["channel"] == channel]
@@ -504,7 +506,8 @@ class MMMParameterAdjuster:
             return []
         beta = float(row["beta_m"].iloc[0])
         ec   = float(row["ec_m"].iloc[0])
-        x_max = ec * 5
+        if x_max is None:
+            x_max = ec * 5
         points = []
         for i in range(n_points + 1):
             x = x_max * i / n_points

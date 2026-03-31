@@ -2399,8 +2399,12 @@ class FY2029HTMLReporter:
         )
 
         for col_idx, ch in enumerate(channels, start=1):
+            # 基準年度(FY2026)のec_mからx軸範囲を固定 → 全年度で同じ横軸
+            base_pts = adjuster.response_curve_points(product_id, fiscal_years[0], ch)
+            x_max_fixed = max((p[0] for p in base_pts), default=None)
+
             for fy in fiscal_years:
-                pts = adjuster.response_curve_points(product_id, fy, ch)
+                pts = adjuster.response_curve_points(product_id, fy, ch, x_max=x_max_fixed)
                 if not pts:
                     continue
                 xs = [p[0] for p in pts]
