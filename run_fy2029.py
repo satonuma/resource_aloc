@@ -152,8 +152,7 @@ def load_data():
       mmm_decay_params.csv     - MMM減衰パラメータ（手動編集可）
       activity_set.csv         - FC/SC品目セット（手動編集可）
       target_doctors.csv       - 品目別ターゲット医師数（手動編集可）
-      target_doctor_ranges.csv - 医師IDレンジ（被り率計算用、手動編集可）
-      current_activities.csv   - 現在のMR/Digital活動量（手動編集可）
+      target_doctor_list.csv   - 品目別ターゲット医師リスト（被り率計算用）
       current_fte.csv          - 現在のFTE（手動編集可）
 
     Databricks本番環境に切り替える場合:
@@ -184,27 +183,37 @@ def load_data():
     # ---- FC/SC活動セット ----
     activity_set_df = pd.read_csv(BASE / "activity_set.csv")
 
-    # ---- ターゲット医師IDリスト（被り率計算用）----
-    # target_doctor_ranges.csv の start〜end から pd.Series を生成
-    ranges_df = pd.read_csv(BASE / "target_doctor_ranges.csv")
-    target_doctor_lists = {
-        row["product_id"]: pd.Series([
-            f"D{i:04d}"
-            for i in range(int(row["doctor_id_start"]), int(row["doctor_id_end"]) + 1)
-        ])
-        for _, row in ranges_df.iterrows()
-    }
+    # ---- ターゲット医師IDリスト（被り率計算用: target_doctor_list.csv）----
+    tdl_path = BASE / "target_doctor_list.csv"
+    if tdl_path.exists():
+        tdl_df = pd.read_csv(tdl_path, dtype=str)
+        target_doctor_lists: Dict[str, pd.Series] = {
+            pid: pd.Series(grp["doctor_id"].unique())
+            for pid, grp in tdl_df.groupby("product_id")
+        }
+        print(f"       → target_doctor_list.csv: {len(target_doctor_lists)} 品目 / "
+              f"{sum(len(v) for v in target_doctor_lists.values())} 医師-品目ペア読み込み")
+    else:
+        target_doctor_lists = {}
+        print("       → target_doctor_list.csv なし → 被り率計算スキップ")
 
     # ---- FC/SC 比率（明示指定）----
     fc_ratio_df = pd.read_csv(BASE / "fc_sc_ratio.csv")
     fc_ratios = dict(zip(fc_ratio_df["product_id"], fc_ratio_df["fc_ratio"].astype(float)))
 
-    # ---- 現在の活動量 ----
-    ca_df = pd.read_csv(BASE / "current_activities.csv")
-    current_activities = {
-        row["product_id"]: {"MR": float(row["mr_activity"]), "Digital": float(row["digital_activity"])}
-        for _, row in ca_df.iterrows()
-    }
+    # ---- 月次MR活動量（activity_data.csv から算出） ----
+    # current_activities.csv は不要: activity_data から品目別月次平均コール数を直接算出
+    _act_for_mr = activity_data.copy()
+    if "activity_ym" not in _act_for_mr.columns and "activity_date" in _act_for_mr.columns:
+        _act_for_mr["activity_ym"] = _act_for_mr["activity_date"].str[:7]
+    _mr_monthly_counts = (
+        _act_for_mr.groupby(["product_id", "activity_ym"])
+        .size()
+        .reset_index(name="count")
+        .groupby("product_id")["count"]
+        .mean()
+    )
+    current_mr_activity: Dict[str, float] = _mr_monthly_counts.to_dict()
 
     # ---- FY2026/4時点のFTE（シミュレーション開始時点の実績値） ----
     fte_df = pd.read_csv(BASE / "current_fte.csv")
@@ -285,7 +294,7 @@ def load_data():
         decay_params_df    = decay_params_df,
         activity_set_df    = activity_set_df,
         target_doctor_lists= target_doctor_lists,
-        current_activities = current_activities,
+        current_mr_activity  = current_mr_activity,
         fy2026_apr_fte       = fy2026_apr_fte,
         base_target_doctors    = base_target_doctors,
         doctor_tiers           = doctor_tiers,
@@ -364,10 +373,9 @@ def main():
         yearly_doctor_counts  = data["yearly_doctor_counts"],  # 年度別医師数
     )
 
+    # FC/SC = 医師の分類ではなく品目の訪問種別（fc_sc_ratio.csv で直接指定）
     fc_sc_allocator = FCScAllocator(
-        activity_set_df=data["activity_set_df"],
-        target_doctor_lists=data["target_doctor_lists"],
-        fc_ratios=data["fc_ratios"],   # fc_sc_ratio.csv の値を優先使用
+        fc_ratios=data["fc_ratios"],   # {product_id: fc_ratio 0.0〜1.0}
     )
 
     freq_estimator = ActivityFrequencyEstimator(
@@ -541,7 +549,6 @@ def main():
         fc_sc_allocator=fc_sc_allocator,
         freq_estimator=freq_estimator,
         product_info=data["product_info"],
-        current_activities=data["current_activities"],
         frequency_mode="lifecycle_adjusted",
         new_product_ramp_up={
             "OVE": ove_ramp_up, "Zaso": zaso_ramp_up, "WSA": wsa_ramp_up,
@@ -562,10 +569,7 @@ def main():
     new_product_fte_allocator = NewProductFTEAllocator(
         decay_params_df=data["decay_params_df"],
         current_fte=data["fy2026_apr_fte"],
-        current_mr_activity={
-            pid: data["current_activities"][pid]["MR"]
-            for pid in data["fy2026_apr_fte"]
-        },
+        current_mr_activity=data["current_mr_activity"],
         min_fte_ratio=0.5,
     )
 

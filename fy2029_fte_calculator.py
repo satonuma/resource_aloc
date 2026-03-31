@@ -573,99 +573,50 @@ class TargetDoctorCalculator:
 
 
 # ============================================================
-# Module 2: FC/SC オーバーラップ算出
+# Module 2: FC/SC 訪問コスト重み算出
 # ============================================================
 
 class FCScAllocator:
     """
-    品目間のFC/SC構造を管理し、実効ターゲット医師数を分割する。
+    品目の FC/SC 訪問コスト重みを管理する。
 
-    セカンドコール（SC）の取り扱い:
-      - FC訪問に内包される → 追加訪問コストなし
-      - FTEコストは FC × SC_COEFFICIENT として計上
+    FC（First Call）= その品目が訪問の主目的
+    SC（Second Call）= 他品目の訪問に内包される（ついで話し）
 
-    FC比率の決定方法（優先順位順）:
-      1. fc_ratios に品目IDが含まれる場合 → その値を直接使用（推奨）
-         例: {"INT": 0.0, "TRI": 1.0} → INT=100%SC, TRI=100%FC
-      2. fc_ratios にない場合 → activity_set_df + 医師リスト被り率で自動計算（フォールバック）
+    医師をFC/SCに分類するのではなく、品目の訪問コストに重みをかける考え方。
+    ある医師AにTRIはFC・INTはSCとして訪問するとき、TRIの訪問コストはフル、
+    INTはその訪問に内包されるためほぼ追加コストなし。
 
-    fc_sc_ratio.csv の列: product_id, fc_ratio (0.0〜1.0), note
-    activity_set_df の列: fc_product, sc_product
+    fc_weight = fc_ratio + (1 - fc_ratio) × SC_COEFFICIENT
+    required_calls_effective = raw_required_calls × fc_weight
+
+    fc_sc_ratio.csv の列: product_id, fc_ratio (0.0〜1.0)
+      fc_ratio=1.0 → 全訪問がFC（主訪問）
+      fc_ratio=0.0 → 全訪問がSC（他品目のついで）
     """
 
     def __init__(
         self,
-        activity_set_df: pd.DataFrame,
-        target_doctor_lists: Dict[str, pd.Series],
         fc_ratios: Optional[Dict[str, float]] = None,
-        # {product_id: FC比率 0.0〜1.0}。指定した品目は被り率計算をスキップ
+        # {product_id: FC比率 0.0〜1.0}
     ) -> None:
-        self.activity_set_df = activity_set_df
-        self.target_doctor_lists = target_doctor_lists
         self.fc_ratios: Dict[str, float] = fc_ratios or {}
-        self._overlap_cache: Dict[Tuple[str, str], float] = {}
 
-    def overlap_rate(self, fc_product: str, sc_product: str) -> float:
+    def get_fc_ratio(self, product_id: str) -> float:
+        """品目のFC比率を返す（未指定なら 1.0 = 全訪問FC）"""
+        return float(self.fc_ratios.get(product_id, 1.0))
+
+    def get_fc_weight(self, product_id: str) -> float:
         """
-        被り率 = |FC医師 ∩ SC医師| / |SC医師|
-        SC医師のうち何割がFC訪問時に同時にカバーできるかを示す。
+        訪問コスト重み = fc_ratio + (1 - fc_ratio) × SC_COEFFICIENT
+
+        例:
+          GLI fc_ratio=1.00 → weight=1.00（フルコスト）
+          INT fc_ratio=0.00 → weight=0.10（90%コスト削減）
+          CUV fc_ratio=0.64 → weight=0.676
         """
-        key = (fc_product, sc_product)
-        if key in self._overlap_cache:
-            return self._overlap_cache[key]
-
-        fc_set = set(self.target_doctor_lists.get(fc_product, pd.Series([])))
-        sc_set = set(self.target_doctor_lists.get(sc_product, pd.Series([])))
-
-        if not sc_set:
-            rate = 0.0
-        else:
-            rate = len(fc_set & sc_set) / len(sc_set)
-
-        self._overlap_cache[key] = rate
-        return rate
-
-    def split_fc_sc(
-        self,
-        product_id: str,
-        total_target_doctors: int,
-        all_target_doctors: Dict[str, int],
-    ) -> Tuple[int, int]:
-        """
-        品目pの (FC医師数, SC医師数) を返す。
-
-        fc_ratios に品目が含まれる場合:
-          FC医師数 = round(total × fc_ratio)
-          SC医師数 = total - FC医師数
-
-        含まれない場合（フォールバック）:
-          SC医師数 = Σ（被り率 × total）
-          FC医師数 = total - SC医師数
-        """
-        # --- パターン1: 明示的FC比率が指定されている ---
-        if product_id in self.fc_ratios:
-            ratio = float(self.fc_ratios[product_id])
-            ratio = max(0.0, min(1.0, ratio))   # 0〜1にクリップ
-            fc_count = round(total_target_doctors * ratio)
-            sc_count = total_target_doctors - fc_count
-            return fc_count, sc_count
-
-        # --- パターン2: 被り率から自動計算（フォールバック）---
-        fc_partners = (
-            self.activity_set_df[
-                self.activity_set_df["sc_product"] == product_id
-            ]["fc_product"]
-            .tolist()
-        )
-
-        sc_count = 0
-        for fc_prod in fc_partners:
-            rate = self.overlap_rate(fc_prod, product_id)
-            sc_count += int(total_target_doctors * rate)
-
-        sc_count = min(sc_count, total_target_doctors)
-        fc_count = total_target_doctors - sc_count
-        return fc_count, sc_count
+        fc_ratio = self.get_fc_ratio(product_id)
+        return fc_ratio + (1.0 - fc_ratio) * SC_COEFFICIENT
 
 
 # ============================================================
@@ -1136,8 +1087,6 @@ class FY2029FTECalculator:
         fc_sc_allocator: FCScAllocator,
         freq_estimator: ActivityFrequencyEstimator,
         product_info: pd.DataFrame,
-        current_activities: Dict[str, Dict[str, float]],
-        # {product_id: {"MR": 月次コール数, "Digital": 月次視聴数}}
         frequency_mode: str = "lifecycle_adjusted",
         new_product_ramp_up: Optional[Dict[str, List[float]]] = None,
         # {product_id: [発売0ヶ月目浸透率, 1ヶ月目, ...]}
@@ -1158,7 +1107,6 @@ class FY2029FTECalculator:
         self.fc_sc_allocator = fc_sc_allocator
         self.freq_estimator = freq_estimator
         self.product_info = product_info
-        self.current_activities = current_activities
         self.frequency_mode = frequency_mode
         self.new_product_ramp_up = new_product_ramp_up or {}
         self.reference_products = reference_products or {}
@@ -1269,10 +1217,12 @@ class FY2029FTECalculator:
 
             for month in self.target_months:
                 total_target = all_target[pid].get(month, 0)
-                target_this_month = {p: all_target[p].get(month, 0) for p in all_target}
-                fc_docs, sc_docs = self.fc_sc_allocator.split_fc_sc(
-                    pid, total_target, target_this_month
-                )
+
+                # ---- FC/SC 訪問コスト重み（医師の分類ではなく品目の訪問種別） ----
+                # FC = 主訪問（全コスト）、SC = 他品目訪問に内包（低コスト）
+                # 同一医師に対してTRIはFC・INTはSCという形で活動する
+                fc_weight = self.fc_sc_allocator.get_fc_weight(pid)
+                fc_ratio  = self.fc_sc_allocator.get_fc_ratio(pid)
 
                 # ---- R/W 医師ティアによる required_calls 計算 ----
                 tier = self.target_doctor_calc.get_doctor_tier(pid, month=month)
@@ -1286,16 +1236,19 @@ class FY2029FTECalculator:
                     lc_adj = self.freq_estimator._lifecycle_adj(pid, month)
                     r_freq = tier["r_visit_freq"] * lc_adj
                     w_freq = tier["w_visit_freq"] * lc_adj
-                    required_calls = r_docs * r_freq + w_docs * w_freq
-                    eff_freq = required_calls / total_target if total_target > 0 else 0.0
+                    raw_calls = r_docs * r_freq + w_docs * w_freq
+                    eff_freq  = (r_docs * r_freq + w_docs * w_freq) / total_target if total_target > 0 else 0.0
                 else:
-                    # ティアデータなし（新製品等）: 従来ロジック
-                    r_docs = fc_docs
-                    w_docs = sc_docs
-                    freq = self.freq_estimator.get(pid, month, self.frequency_mode)
+                    # ティアデータなし（新製品等）: lifecycle_adjusted頻度
+                    r_docs = total_target
+                    w_docs = 0
+                    freq   = self.freq_estimator.get(pid, month, self.frequency_mode)
                     r_freq = w_freq = freq
-                    required_calls = fc_docs * freq + sc_docs * freq * SC_COEFFICIENT
-                    eff_freq = freq
+                    raw_calls = total_target * freq
+                    eff_freq  = freq
+
+                # FC/SC重みを適用（SCが多い品目ほど必要コールを割引）
+                required_calls = raw_calls * fc_weight
 
                 base_fte = required_calls / monthly_capacity if monthly_capacity > 0 else 0.0
 
@@ -1314,8 +1267,8 @@ class FY2029FTECalculator:
                     "target_doctors":  total_target,
                     "r_doctors":       r_docs,
                     "w_doctors":       w_docs,
-                    "fc_doctors":      fc_docs,
-                    "sc_doctors":      sc_docs,
+                    "fc_ratio":        round(fc_ratio, 3),
+                    "fc_weight":       round(fc_weight, 3),
                     "visit_frequency": round(eff_freq, 3),
                     "required_calls":  round(required_calls, 1),
                     "base_fte":        base_fte,  # ブースト込み全活動FTE

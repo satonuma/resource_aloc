@@ -790,37 +790,42 @@ def fig_sim_vs_optimal(
 
 
 def fig_fc_sc_breakdown(fte_df: pd.DataFrame) -> go.Figure:
-    """FC/SC 医師数の品目別積み上げ（FY2029平均）"""
+    """品目別 FC比率 / 訪問コスト重み（fc_weight）の棒グラフ"""
+    if "fc_ratio" not in fte_df.columns:
+        # 旧形式データ互換: 空グラフを返す
+        return go.Figure()
+
     avg = (
-        fte_df.groupby("product_id")[["fc_doctors", "sc_doctors"]]
+        fte_df.groupby("product_id")[["fc_ratio", "fc_weight"]]
         .mean()
         .reset_index()
-        .sort_values("fc_doctors", ascending=False)
+        .sort_values("fc_ratio", ascending=False)
     )
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        name="FC医師数（主訪問）",
+        name="FC比率（主訪問割合）",
         x=avg["product_id"],
-        y=avg["fc_doctors"],
+        y=(avg["fc_ratio"] * 100).round(1),
         marker_color="#1f77b4",
-        text=avg["fc_doctors"].round(0).astype(int),
+        text=(avg["fc_ratio"] * 100).round(0).astype(int).astype(str) + "%",
         textposition="inside",
     ))
-    fig.add_trace(go.Bar(
-        name="SC医師数（セカンドコール）",
+    fig.add_trace(go.Scatter(
+        name="訪問コスト重み（fc_weight）",
         x=avg["product_id"],
-        y=avg["sc_doctors"],
-        marker_color="#aec7e8",
-        text=avg["sc_doctors"].round(0).astype(int),
-        textposition="inside",
+        y=(avg["fc_weight"] * 100).round(1),
+        mode="markers+lines",
+        marker=dict(size=8, color="#d62728"),
+        line=dict(dash="dot", color="#d62728"),
+        yaxis="y2",
     ))
 
     fig.update_layout(
-        barmode="stack",
-        title="品目別 FC / SC 医師数（全期間月平均）",
+        title="品目別 FC比率 と 訪問コスト重み",
         xaxis_title="品目",
-        yaxis_title="医師数",
+        yaxis=dict(title="FC比率 (%)", range=[0, 105]),
+        yaxis2=dict(title="fc_weight (%)", overlaying="y", side="right", range=[0, 105]),
         height=380,
         template="plotly_white",
         legend=dict(orientation="h", y=1.05),
@@ -2407,35 +2412,34 @@ class FY2029HTMLReporter:
             _kpi_card("平均デジタル有効性", f"{avg_digital_score*100:.0f}%", "全品目スコア平均"),
         ])
 
-        # ---- FC/SC サマリーテーブル ----
+        # ---- FC/SC サマリーテーブル（品目の訪問種別コスト重み） ----
         fc_sc_summary = (
             fte_df.groupby("product_id")
             .agg(
-                avg_fc=("fc_doctors", "mean"),
-                avg_sc=("sc_doctors", "mean"),
+                avg_fc_ratio=("fc_ratio", "mean") if "fc_ratio" in fte_df.columns else ("target_doctors", "count"),
+                avg_fc_weight=("fc_weight", "mean") if "fc_weight" in fte_df.columns else ("target_doctors", "count"),
                 avg_total=("target_doctors", "mean"),
             )
             .reset_index()
-            .round(0)
+            .round(3)
         )
-        fc_sc_summary["SC比率"] = (
-            fc_sc_summary["avg_sc"] / fc_sc_summary["avg_total"].replace(0, np.nan)
-        ).fillna(0).round(3)
-        fc_sc_summary.columns = ["品目", "FC医師数(平均)", "SC医師数(平均)",
-                                  "合計ターゲット(平均)", "SC比率"]
+        if "fc_ratio" in fte_df.columns:
+            fc_sc_summary.columns = ["品目", "FC比率(平均)", "訪問コスト重み(平均)", "ターゲット医師数(平均)"]
+        else:
+            fc_sc_summary.columns = ["品目", "件数", "件数2", "ターゲット医師数(平均)"]
 
         # ---- 詳細テーブル用カラム整理 ----
         detail_cols = [
             "product_id", "month", "area",
-            "fc_doctors", "sc_doctors", "visit_frequency",
+            "target_doctors", "r_doctors", "w_doctors",
+            "fc_ratio", "visit_frequency",
             "required_calls", fte_col,
-            "mr_ratio", "digital_ratio", "mr_fte",
         ]
         col_labels = [
             "品目", "月", "領域",
-            "FC医師数", "SC医師数", "訪問頻度",
+            "ターゲット医師数", "R医師数", "W医師数",
+            "FC比率", "訪問頻度",
             "必要コール数", "必要FTE",
-            "MR比率", "Digital比率", "MR_FTE",
         ]
         available_cols = [c for c in detail_cols if c in fte_df.columns]
         detail_df = fte_df[available_cols].copy()
