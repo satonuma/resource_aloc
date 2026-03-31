@@ -197,9 +197,13 @@ def load_data():
         target_doctor_lists = {}
         print("       → target_doctor_list.csv なし → 被り率計算スキップ")
 
-    # ---- FC/SC 比率（明示指定）----
+    # ---- FC/SC 比率（年度別対応）----
     fc_ratio_df = pd.read_csv(BASE / "fc_sc_ratio.csv")
-    fc_ratios = dict(zip(fc_ratio_df["product_id"], fc_ratio_df["fc_ratio"].astype(float)))
+    # 後方互換: fiscal_year 列がない旧フォーマットの場合は default として扱う
+    if "fiscal_year" not in fc_ratio_df.columns:
+        fc_ratio_df["fiscal_year"] = "default"
+    fc_ratios = dict(zip(fc_ratio_df[fc_ratio_df["fiscal_year"] == "default"]["product_id"],
+                         fc_ratio_df[fc_ratio_df["fiscal_year"] == "default"]["fc_ratio"].astype(float)))
 
     # ---- 月次MR活動量（activity_data.csv から算出） ----
     # current_activities.csv は不要: activity_data から品目別月次平均コール数を直接算出
@@ -326,6 +330,7 @@ def load_data():
         sales_forecast     = sales_forecast,
         delivery_data      = delivery_data,
         fc_ratios          = fc_ratios,
+        fc_ratio_df        = fc_ratio_df,
         mmm_optimal_df     = None,
         visit_freq_data      = visit_freq_data,
         working_days_map     = working_days_map,
@@ -399,9 +404,9 @@ def main():
         visit_freq_data       = data["visit_freq_data"],
     )
 
-    # FC/SC = 医師の分類ではなく品目の訪問種別（fc_sc_ratio.csv で直接指定）
+    # FC/SC = 医師の分類ではなく品目の訪問種別（fc_sc_ratio.csv で年度別指定）
     fc_sc_allocator = FCScAllocator(
-        fc_ratios=data["fc_ratios"],   # {product_id: fc_ratio 0.0〜1.0}
+        fc_ratio_df=data["fc_ratio_df"],  # 年度別対応版（fiscal_year列あり）
     )
 
     freq_estimator = ActivityFrequencyEstimator(

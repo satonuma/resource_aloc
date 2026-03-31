@@ -780,23 +780,67 @@ class FCScAllocator:
     fc_weight = fc_ratio + (1 - fc_ratio) × SC_COEFFICIENT
     required_calls_effective = raw_required_calls × fc_weight
 
-    fc_sc_ratio.csv の列: product_id, fc_ratio (0.0〜1.0)
+    fc_sc_ratio.csv の列:
+      product_id, fiscal_year, fc_ratio (0.0〜1.0), note
+      fiscal_year = "default" は全年度のデフォルト値
+      fiscal_year = "FY2027" のように年度指定すると、その年度のみ上書き
       fc_ratio=1.0 → 全訪問がFC（主訪問）
       fc_ratio=0.0 → 全訪問がSC（他品目のついで）
     """
 
     def __init__(
         self,
+        fc_ratio_df: Optional["pd.DataFrame"] = None,
         fc_ratios: Optional[Dict[str, float]] = None,
-        # {product_id: FC比率 0.0〜1.0}
     ) -> None:
-        self.fc_ratios: Dict[str, float] = fc_ratios or {}
+        """
+        Args:
+            fc_ratio_df: fc_sc_ratio.csv の DataFrame（product_id, fiscal_year, fc_ratio）
+            fc_ratios:   旧形式の {product_id: fc_ratio} dict（後方互換用）
+        """
+        import pandas as _pd
+        self._by_fy: Dict[Tuple[str, str], float] = {}  # (product_id, "FY2027") -> ratio
+        self._default: Dict[str, float] = {}            # product_id -> default ratio
 
-    def get_fc_ratio(self, product_id: str) -> float:
-        """品目のFC比率を返す（未指定なら 1.0 = 全訪問FC）"""
-        return float(self.fc_ratios.get(product_id, 1.0))
+        if fc_ratio_df is not None and not fc_ratio_df.empty:
+            for _, row in fc_ratio_df.iterrows():
+                pid = str(row["product_id"]).strip()
+                fy  = str(row.get("fiscal_year", "default")).strip()
+                ratio = float(row["fc_ratio"])
+                if fy == "default":
+                    self._default[pid] = ratio
+                else:
+                    self._by_fy[(pid, fy)] = ratio
+        elif fc_ratios:
+            # 後方互換：旧形式のdictをdefaultとして登録
+            self._default = {k: float(v) for k, v in fc_ratios.items()}
 
-    def get_fc_weight(self, product_id: str) -> float:
+    def get_fc_ratio(self, product_id: str, month: Optional[str] = None) -> float:
+        """
+        品目・月のFC比率を返す。
+
+        Args:
+            product_id: 品目ID
+            month:      "YYYY-MM" 形式（例: "2027-06"）。Noneならデフォルト値を返す
+
+        Returns:
+            fc_ratio (0.0〜1.0)。未指定なら 1.0（全訪問FC）
+        """
+        fy = None
+        if month:
+            try:
+                y, m = int(month[:4]), int(month[5:7])
+                # 会計年度: 4月始まり（2027-04〜2028-03 → FY2027）
+                fy = f"FY{y}" if m >= 4 else f"FY{y - 1}"
+            except (ValueError, IndexError):
+                pass
+
+        # 年度別指定 → デフォルト の優先順位
+        if fy and (product_id, fy) in self._by_fy:
+            return self._by_fy[(product_id, fy)]
+        return float(self._default.get(product_id, 1.0))
+
+    def get_fc_weight(self, product_id: str, month: Optional[str] = None) -> float:
         """
         訪問コスト重み = fc_ratio + (1 - fc_ratio) × SC_COEFFICIENT
 
@@ -805,7 +849,7 @@ class FCScAllocator:
           INT fc_ratio=0.00 → weight=0.10（90%コスト削減）
           CUV fc_ratio=0.64 → weight=0.676
         """
-        fc_ratio = self.get_fc_ratio(product_id)
+        fc_ratio = self.get_fc_ratio(product_id, month=month)
         return fc_ratio + (1.0 - fc_ratio) * SC_COEFFICIENT
 
 
@@ -1421,8 +1465,8 @@ class FY2029FTECalculator:
                 # ---- FC/SC 訪問コスト重み（医師の分類ではなく品目の訪問種別） ----
                 # FC = 主訪問（全コスト）、SC = 他品目訪問に内包（低コスト）
                 # 同一医師に対してTRIはFC・INTはSCという形で活動する
-                fc_weight = self.fc_sc_allocator.get_fc_weight(pid)
-                fc_ratio  = self.fc_sc_allocator.get_fc_ratio(pid)
+                fc_weight = self.fc_sc_allocator.get_fc_weight(pid, month=month)
+                fc_ratio  = self.fc_sc_allocator.get_fc_ratio(pid, month=month)
 
                 # ---- R/W 医師ティアによる required_calls 計算 ----
                 tier = self.target_doctor_calc.get_doctor_tier(pid, month=month)
