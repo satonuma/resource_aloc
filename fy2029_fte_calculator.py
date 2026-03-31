@@ -390,6 +390,8 @@ class TargetDoctorCalculator:
         activity_data: Optional[pd.DataFrame] = None,
         doctor_tiers: Optional[Dict[str, dict]] = None,
         yearly_doctor_counts: Optional[Dict[Tuple[str, str], Tuple[int, int]]] = None,
+        visit_freq_data: Optional[Dict[Tuple[str, str, str], dict]] = None,
+        # {(product_id, "FY2026", "R"/"W"): {"target_freq": float, "achievement_rate": float}}
     ) -> None:
         self.base_target_doctors = base_target_doctors
         self.doctor_tiers = doctor_tiers or {}
@@ -397,6 +399,7 @@ class TargetDoctorCalculator:
         self.product_info = product_info
         self.mindscape_segments_df = mindscape_segments_df if mindscape_segments_df is not None else pd.DataFrame()
         self.activity_data = activity_data if activity_data is not None else pd.DataFrame()
+        self.visit_freq_data = visit_freq_data or {}
 
     # ----------------------------------------------------------
     # 既存品目用
@@ -426,6 +429,30 @@ class TargetDoctorCalculator:
                 }
 
         return base
+
+    def get_visit_freq(self, product_id: str, month: str, tier: str) -> Tuple[float, float, float]:
+        """
+        品目×ティアの実効訪問頻度を返す。
+
+        visit_freq.csv に年度別データがある場合はそれを使用。
+        ない場合は target_doctors.csv の base tier freq を返す。
+
+        Returns: (effective_freq, target_freq, achievement_rate)
+        """
+        fy = month_to_fy(month)
+        key = (product_id, fy, tier)
+        if key in self.visit_freq_data:
+            row = self.visit_freq_data[key]
+            tgt = float(row["target_freq"])
+            ach = float(row["achievement_rate"])
+            return tgt * ach, tgt, ach
+
+        # フォールバック: target_doctors.csv の base freq (lc_adj は呼び元で適用)
+        base = self.doctor_tiers.get(product_id)
+        if base:
+            freq = float(base["r_visit_freq"] if tier == "R" else base["w_visit_freq"])
+            return freq, freq, 1.0
+        return 1.0, 1.0, 1.0
 
     def get_base_target_doctors(self, product_id: str, month: Optional[str] = None) -> int:
         """
@@ -1100,6 +1127,8 @@ class FY2029FTECalculator:
         supply_restrictions: Optional[Dict[str, List[Dict]]] = None,
         # {product_id: [{"start_ym": "2026-02", "end_ym": "2027-03", "factor": 0.65}, ...]}
         # 供給制限スケジュール。制限期間中はFTEを factor 倍に削減する。
+        working_days_map: Optional[Dict[str, int]] = None,
+        # {YYYY-MM: 実稼働日数}
     ) -> None:
         self.configs = {p.product_id: p for p in product_configs}
         self.target_doctor_calc = target_doctor_calc
@@ -1112,6 +1141,7 @@ class FY2029FTECalculator:
         self.reference_products = reference_products or {}
         self.competition_schedule = competition_schedule or {}
         self.supply_restrictions = supply_restrictions or {}
+        self.working_days_map = working_days_map or {}
 
     @property
     def target_months(self) -> List[str]:
@@ -1213,10 +1243,11 @@ class FY2029FTECalculator:
         pass1_records = []
         for pid, config in self.configs.items():
             area = config.area
-            monthly_capacity = CALLS_PER_DAY[area] * WORKING_DAYS_PER_MONTH
 
             for month in self.target_months:
                 total_target = all_target[pid].get(month, 0)
+                working_days = self.working_days_map.get(month, WORKING_DAYS_PER_MONTH)
+                monthly_capacity = CALLS_PER_DAY[area] * working_days
 
                 # ---- FC/SC 訪問コスト重み（医師の分類ではなく品目の訪問種別） ----
                 # FC = 主訪問（全コスト）、SC = 他品目訪問に内包（低コスト）
@@ -1232,12 +1263,20 @@ class FY2029FTECalculator:
                     ratio = total_target / total_base if total_base > 0 else 1.0
                     r_docs = int(round(tier["r_doctors"] * ratio))
                     w_docs = total_target - r_docs
-                    # ライフサイクル調整をベース頻度に乗算
-                    lc_adj = self.freq_estimator._lifecycle_adj(pid, month)
-                    r_freq = tier["r_visit_freq"] * lc_adj
-                    w_freq = tier["w_visit_freq"] * lc_adj
+                    # visit_freq.csv の目標頻度×達成率で実効頻度を決定
+                    r_eff, r_tgt, r_ach = self.target_doctor_calc.get_visit_freq(pid, month, "R")
+                    w_eff, w_tgt, w_ach = self.target_doctor_calc.get_visit_freq(pid, month, "W")
+                    # visit_freq.csv がある場合は lc_adj 不要（年度別で制御済み）
+                    # ない場合（新製品フォールバック）は lc_adj を適用
+                    if (pid, month_to_fy(month), "R") in self.target_doctor_calc.visit_freq_data:
+                        r_freq = r_eff
+                        w_freq = w_eff
+                    else:
+                        lc_adj = self.freq_estimator._lifecycle_adj(pid, month)
+                        r_freq = r_eff * lc_adj
+                        w_freq = w_eff * lc_adj
                     raw_calls = r_docs * r_freq + w_docs * w_freq
-                    eff_freq  = (r_docs * r_freq + w_docs * w_freq) / total_target if total_target > 0 else 0.0
+                    eff_freq  = raw_calls / total_target if total_target > 0 else 0.0
                 else:
                     # ティアデータなし（新製品等）: lifecycle_adjusted頻度
                     r_docs = total_target
@@ -1246,6 +1285,8 @@ class FY2029FTECalculator:
                     r_freq = w_freq = freq
                     raw_calls = total_target * freq
                     eff_freq  = freq
+                    r_tgt, r_ach = freq, 1.0
+                    w_tgt, w_ach = freq, 1.0
 
                 # FC/SC重みを適用（SCが多い品目ほど必要コールを割引）
                 required_calls = raw_calls * fc_weight
@@ -1261,17 +1302,22 @@ class FY2029FTECalculator:
                 base_fte *= boost * comp_boost * supply_factor
 
                 pass1_records.append({
-                    "product_id":      pid,
-                    "month":           month,
-                    "area":            area,
-                    "target_doctors":  total_target,
-                    "r_doctors":       r_docs,
-                    "w_doctors":       w_docs,
-                    "fc_ratio":        round(fc_ratio, 3),
-                    "fc_weight":       round(fc_weight, 3),
-                    "visit_frequency": round(eff_freq, 3),
-                    "required_calls":  round(required_calls, 1),
-                    "base_fte":        base_fte,  # ブースト込み全活動FTE
+                    "product_id":        pid,
+                    "month":             month,
+                    "area":              area,
+                    "working_days":      working_days,
+                    "target_doctors":    total_target,
+                    "r_doctors":         r_docs,
+                    "w_doctors":         w_docs,
+                    "r_target_freq":     round(r_tgt, 3),
+                    "r_achievement":     round(r_ach, 3),
+                    "w_target_freq":     round(w_tgt, 3),
+                    "w_achievement":     round(w_ach, 3),
+                    "fc_ratio":          round(fc_ratio, 3),
+                    "fc_weight":         round(fc_weight, 3),
+                    "visit_frequency":   round(eff_freq, 3),
+                    "required_calls":    round(required_calls, 1),
+                    "base_fte":          base_fte,
                 })
 
         # ---- Pass 2: required_fte = base_fte（MR FTE = 全活動FTE、デジタルは独立分析）----

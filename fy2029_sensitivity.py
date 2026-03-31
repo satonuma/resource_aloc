@@ -63,6 +63,7 @@ class ScaledTargetDoctorCalculator(TargetDoctorCalculator):
         self.mindscape_segments_df = base_calc.mindscape_segments_df
         self.doctor_tiers          = base_calc.doctor_tiers
         self.yearly_doctor_counts  = base_calc.yearly_doctor_counts
+        self.visit_freq_data       = base_calc.visit_freq_data
 
     def calculate(self, product_id, months, config=None, ramp_up_curve=None,
                   reference_product_id=None):
@@ -155,6 +156,7 @@ class FY2029SensitivityAnalyzer:
             new_product_ramp_up=self.base_calc.new_product_ramp_up,
             reference_products=self.base_calc.reference_products,
             target_months=self.base_calc._target_months,
+            working_days_map=self.base_calc.working_days_map,
         )
 
         if new_product_ids and donor_products and new_product_fte_allocator:

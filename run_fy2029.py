@@ -257,6 +257,29 @@ def load_data():
             yearly_doctor_counts[key] = (int(row["r_doctors"]), int(row["w_doctors"]))
         print(f"       → target_doctor_yearly.csv: {len(yearly_doctor_counts)} 件の年度別データ読み込み")
 
+    # ---- 訪問頻度CSV（visit_freq.csv: 品目×年度×ティア別 目標頻度・達成率）----
+    vf_path = BASE / "visit_freq.csv"
+    visit_freq_data: Dict[Tuple[str, str, str], dict] = {}
+    if vf_path.exists():
+        vf_df = pd.read_csv(vf_path)
+        for _, row in vf_df.iterrows():
+            key = (str(row["product_id"]).strip(),
+                   str(row["fiscal_year"]).strip(),
+                   str(row["rw_tier"]).strip())
+            visit_freq_data[key] = {
+                "target_freq":     float(row["target_freq"]),
+                "achievement_rate": float(row["achievement_rate"]),
+            }
+        print(f"       → visit_freq.csv: {len(visit_freq_data)} 件の訪問頻度データ読み込み")
+
+    # ---- 実稼働日数CSV（working_days.csv: 年月別 土日祝除外日数）----
+    wd_path = BASE / "working_days.csv"
+    working_days_map: Dict[str, int] = {}
+    if wd_path.exists():
+        wd_df = pd.read_csv(wd_path, dtype={"year_month": str})
+        working_days_map = dict(zip(wd_df["year_month"], wd_df["working_days"].astype(int)))
+        print(f"       → working_days.csv: {len(working_days_map)} ヶ月分の実稼働日数読み込み")
+
     # ---- 売上予測・納入データ（将来分析用として保持）----
     sales_forecast = pd.read_csv(BASE / "sales_forecast.csv")
     delivery_data  = pd.read_csv(BASE / "delivery_data.csv")
@@ -304,6 +327,8 @@ def load_data():
         delivery_data      = delivery_data,
         fc_ratios          = fc_ratios,
         mmm_optimal_df     = None,
+        visit_freq_data      = visit_freq_data,
+        working_days_map     = working_days_map,
     )
 
 
@@ -371,6 +396,7 @@ def main():
         activity_data         = data["activity_data"],   # フォールバック用
         doctor_tiers          = data["doctor_tiers"],    # R/W ティア
         yearly_doctor_counts  = data["yearly_doctor_counts"],  # 年度別医師数
+        visit_freq_data       = data["visit_freq_data"],
     )
 
     # FC/SC = 医師の分類ではなく品目の訪問種別（fc_sc_ratio.csv で直接指定）
@@ -558,6 +584,7 @@ def main():
         target_months=ALL_MONTHS,  # FY2026〜2035の120ヶ月
         competition_schedule=competition_schedule,  # competitor_schedule.csv から読み込み
         supply_restrictions=data["supply_restrictions"],  # 供給制限（GLI FY2026等）
+        working_days_map      = data["working_days_map"],
     )
 
     # ---- 4. FTE 算出（FY2026〜FY2029）----
