@@ -561,6 +561,9 @@
   <a href="#digital">
     <span class="nav-step-badge">D</span> デジタル有効性スコア
   </a>
+  <a href="#mmm-lifecycle">
+    <span class="nav-step-badge">M</span> MMMパラメータ調整
+  </a>
 </nav>
 
 <!-- ═══════════════════════ MAIN ═══════════════════════════ -->
@@ -622,7 +625,7 @@
         </div>
         <div class="pipeline-arrow">→</div>
         <div class="pipeline-node">
-          <div class="pipeline-box">FC/SC分割</div>
+          <div class="pipeline-box">FC/SC訪問コスト重み</div>
           <div class="pipeline-step-num">STEP 2</div>
         </div>
         <div class="pipeline-arrow">→</div>
@@ -661,20 +664,21 @@
 
     <h3 style="margin-top:28px;">主要式まとめ</h3>
     <div class="summary-formula-box">
-<span class="sfb-section">STEP 4 — MR FTE算出</span>FTE = (R医師×r_freq + W医師×w_freq) × lc_adj × fc_weight ÷ (20日/月 × コール/日)
-  CS: コール/日 = 2.5  →  月間キャパ = 50 コール/FTE
-  PS: コール/日 = 1.5  →  月間キャパ = 30 コール/FTE
+<span class="sfb-section">STEP 4 — MR FTE算出</span>FTE = (R医師×r_freq + W医師×w_freq) × lc_adj × fc_weight ÷ (実稼働日数 × コール/日)
+  CS: コール/日 = 2.5  │  PS: コール/日 = 1.5
+  実稼働日数: working_days.csv より年月別に設定（18〜23日/月、土日祝除外）
 
 <span class="sfb-section">STEP 5 — ヘッドカウント正規化</span>adjusted_FTE_i = base_FTE_i × (HC_target ÷ Σ base_FTE)
   CS目標: 380名   PS目標: 45名
 
-<span class="sfb-section">STEP 6 — 新製品 ドナー選定（限界ROI）</span>marginal_ROI(p) = β_p × slope_p × (EC_p^slope_p × x^(slope_p−1))
-                           ÷ (EC_p^slope_p + x^slope_p)²
+<span class="sfb-section">STEP 6 — 新製品 ドナー選定（限界ROI）</span>marginal_ROI(p) = β_m(p) × ec_m(p) ÷ (ec_m(p) + x)²
+  ※ slope_m = 1 固定（ミカエリス-メンテン型）により簡略化
 削減上限: fy2026_apr_fte(p) × 0.5 を最低保護（50%まで削減可）
 
-<span class="sfb-section">デジタル有効性スコア（FTEとは独立）</span>base  = 0.5 × [dig_hill(x_d) ÷ (mr_hill(x_m) + dig_hill(x_d))]
+<span class="sfb-section">デジタル有効性スコア（FTEとは独立）</span>base  = 0.5 × [Σdig_channels hill(x_d) ÷ (Σmr_channels hill(x_m) + Σdig_channels hill(x_d))]
         + 0.5 × digital_soc_rate
 score = clip(base + lifecycle_adj,  0.0,  1.0)
+MRチャネル: 面談/面談_アポ/説明会  デジタルチャネル: Web講演会/Webinar/e-contents/メール
     </div>
 
     <h3>対象品目一覧（19品目）</h3>
@@ -765,7 +769,7 @@ target_drs(p) = r_doctors(p) + w_doctors(p)
     <span class="step-badge">2</span>
     <div>
       <div class="section-title">FC / SC 訪問コスト重み</div>
-      <div class="section-subtitle">品目の訪問種別（主訪問 / ついで訪問）によるコスト重み付け</div>
+      <div class="section-subtitle">品目単位の訪問コスト重み設定（医師分類ではない）</div>
     </div>
   </div>
   <div class="section-body">
@@ -783,25 +787,6 @@ required_calls(p) = raw_calls(p) × fc_weight(p)
 
 <span class="comment"># オーバーラップ（複数品目で同一医師を訪問）を考慮したFCオフセット</span>
 effective_FC(p) = FC_drs(p) − overlap_offset(p)
-    </div>
-    <h3>SC → FC アップグレードルール</h3>
-    <div class="info-box amber">
-      <span class="info-icon">⚠️</span>
-      <span>
-        fc_sc_ratio.csv で品目ごとに fc_ratio（0.0〜1.0）を直接指定します。
-      </span>
-    </div>
-    <div class="two-col">
-      <div class="mini-card">
-        <h4>CS エリア標準値</h4>
-        <p>FC 率： <span class="num-badge">40–60%</span></p>
-        <p>SC 訪問頻度係数： <span class="num-badge">0.1</span></p>
-      </div>
-      <div class="mini-card">
-        <h4>PS エリア標準値</h4>
-        <p>FC 率： <span class="num-badge">30–50%</span></p>
-        <p>SC 訪問頻度係数： <span class="num-badge">0.1</span></p>
-      </div>
     </div>
   </div>
 </div><!-- /step2 -->
@@ -822,7 +807,10 @@ effective_FC(p) = FC_drs(p) − overlap_offset(p)
     </p>
     <div class="formula-box">
       <div class="formula-label">STEP 3 — 訪問頻度（FC）</div>
-visit_freq_FC(p, t) = base_freq(p) × lifecycle_factor(p, t) × competition_factor(p, t)
+effective_freq(p, tier, t) = target_freq(p, tier, FY) × achievement_rate(p, tier, FY)
+  ※ visit_freq.csv で品目×年度×R/Wティア別に管理（target_freq, achievement_rate）
+  ※ visit_freq.csv に該当データがある場合 → lc_adj は適用しない（二重適用防止）
+  ※ visit_freq.csv に該当データがない場合 → lc_adj（ライフサイクル係数）で補正
     </div>
     <h3>ライフサイクル係数テーブル</h3>
     <table class="data-table">
@@ -861,14 +849,14 @@ visit_freq_FC(p, t) = base_freq(p) × lifecycle_factor(p, t) × competition_fact
   </div>
   <div class="section-body">
     <p>
-      FC医師数・SC医師数・訪問頻度から <strong>月間総コール数</strong> を求め、
+      R医師数・W医師数・訪問頻度（visit_freq.csv）から <strong>月間総コール数</strong> を求め、
       MR1名あたりのキャパシティで割ることで品目別のFTEを算出します。
       デジタルチャネルの比率は <strong>FTE計算には含めません</strong>（独立スコアとして別途算出）。
     </p>
     <div class="formula-box">
       <div class="formula-label">STEP 4 — MR FTE 算出式（コア）</div>
 FTE(p, t) = (R_drs × r_freq + W_drs × w_freq) × lc_adj × fc_weight(p)
-            ÷ (20日/月 × コール/日)
+            ÷ (実稼働日数 × コール/日)
 
 <span class="highlight">CS エリア:</span>  コール/日 = <span class="highlight">2.5</span>  →  月間キャパ = <span class="highlight">50</span> コール/FTE
 <span class="highlight">PS エリア:</span>  コール/日 = <span class="highlight">1.5</span>  →  月間キャパ = <span class="highlight">30</span> コール/FTE
@@ -876,13 +864,13 @@ FTE(p, t) = (R_drs × r_freq + W_drs × w_freq) × lc_adj × fc_weight(p)
     <div class="two-col">
       <div class="mini-card">
         <h4>CS — コールキャパシティ</h4>
-        <p>稼働日数： <span class="num-badge">20日/月</span></p>
+        <p>稼働日数： <span class="num-badge">working_days.csv</span> <span style="font-size:12px;color:#666;">（18〜23日/月、土日祝日除外）</span></p>
         <p>コール/日： <span class="num-badge">2.5</span></p>
         <p>月間キャパ： <span class="num-badge">50コール/FTE</span></p>
       </div>
       <div class="mini-card">
         <h4>PS — コールキャパシティ</h4>
-        <p>稼働日数： <span class="num-badge">20日/月</span></p>
+        <p>稼働日数： <span class="num-badge">working_days.csv</span> <span style="font-size:12px;color:#666;">（18〜23日/月、土日祝日除外）</span></p>
         <p>コール/日： <span class="num-badge">1.5</span></p>
         <p>月間キャパ： <span class="num-badge">30コール/FTE</span></p>
       </div>
@@ -955,13 +943,15 @@ adjusted_FTE_i = base_FTE_i × (HC_target ÷ Σ<sub>i</sub> base_FTE_i)
     <h3>限界ROI式（MMM hill関数ベース）</h3>
     <div class="formula-box">
       <div class="formula-label">STEP 6 — 限界ROI（ドナー選定基準）</div>
-marginal_ROI(p, x) = β_p × slope_p × (EC_p^slope_p × x^(slope_p−1))
-                              ÷ (EC_p^slope_p + x^slope_p)²
+marginal_ROI(p, x) = β_m(p) × ec_m(p) ÷ (ec_m(p) + x)²
+  ※ slope_m = 1 固定（ミカエリス-メンテン型）の場合の簡略形
+  ※ 活動量 x が増えるほど限界ROIは低下（逓減）
+  ※ β_m はチャネル別MMMパラメータの合算値
 
 <span class="comment"># パラメータ定義</span>
-β_p     : 製品pのMMMスケール係数（最大効果量）
-slope_p : Hill関数の傾き（急峻さ）
-EC_p    : 半最大効果濃度（x軸: FTE換算）
+β_m(p)  : 製品pのMMMスケール係数（最大効果量）
+slope_m : 1.0 固定（ミカエリス-メンテン型）
+ec_m(p) : 半最大効果濃度（x軸: FTE換算）
 x       : 現在のFTE投入量
     </div>
     <h3>fy2026_apr_fte による最低保護</h3>
@@ -1064,6 +1054,77 @@ min_FTE(p) = fy2026_apr_fte(p) × 0.5
   </div>
 </div><!-- /digital -->
 
+<!-- ── MMM ライフサイクル調整 ─────────────────────────── -->
+<div class="section-card" id="mmm-lifecycle">
+  <div class="section-header">
+    <span class="step-badge" style="background:var(--amber);">M</span>
+    <div>
+      <div class="section-title">MMMパラメータ ライフサイクル調整</div>
+      <div class="section-subtitle">事後分布パラメータをLOE・新製品・競合参入・デジタルトレンドで将来補正</div>
+    </div>
+  </div>
+  <div class="section-body">
+
+    <h3>パラメータ一覧と性質</h3>
+    <table class="data-table">
+      <thead><tr><th>パラメータ</th><th>レベル</th><th>意味</th><th>将来調整</th></tr></thead>
+      <tbody>
+        <tr><td><code>alpha</code></td><td>品目</td><td>Adstock減衰率（訪問効果の持続性）</td><td>変えない（チャネル固有）</td></tr>
+        <tr><td><code>beta_m</code></td><td>品目×チャネル</td><td>応答曲線の天井（最大売上効果）</td><td><strong>変える</strong>（LOE/発売で変化）</td></tr>
+        <tr><td><code>ec_m</code></td><td>品目×チャネル</td><td>EC50（半最大効果に必要な活動量）</td><td>競合参入で低下</td></tr>
+        <tr><td><code>eta_m</code></td><td>品目×チャネル</td><td>チャネル効率パラメータ</td><td>デジタル年率+2%</td></tr>
+        <tr><td><code>slope_m</code></td><td>全チャネル共通</td><td>Hill係数 = <strong>1.0 固定</strong>（ミカエリス-メンテン型）</td><td>変えない</td></tr>
+        <tr><td><code>gamma_c</code></td><td>施設クラスター</td><td>クラスター固有の主効果</td><td>変えない（施設特性は安定）</td></tr>
+        <tr><td><code>gamma_gc</code></td><td>品目×施設クラスター</td><td>品目とクラスターの交互作用効果</td><td>ライフサイクルで変化</td></tr>
+        <tr><td><code>sigma</code></td><td>品目</td><td>観測誤差・ノイズ</td><td>変えない</td></tr>
+      </tbody>
+    </table>
+
+    <h3 style="margin-top:24px;">イベント別調整ルール</h3>
+    <table class="data-table">
+      <thead><tr><th>イベント</th><th>対象パラメータ</th><th>調整内容</th><th>根拠</th></tr></thead>
+      <tbody>
+        <tr><td>LOE（特許切れ）0年後</td><td>beta_m</td><td>×0.80</td><td>ジェネリック参入直後の処方シフト</td></tr>
+        <tr><td>LOE 1年後</td><td>beta_m</td><td>×0.55</td><td>類似品LOE実績に基づく</td></tr>
+        <tr><td>LOE 2年後</td><td>beta_m</td><td>×0.35</td><td>同上</td></tr>
+        <tr><td>LOE 3年以降</td><td>beta_m</td><td>×0.20</td><td>最大減衰（バイオロジクスは緩やか）</td></tr>
+        <tr><td>LOE 全期間</td><td>ec_m</td><td>×0.90→0.50</td><td>市場縮小で飽和点が早まる</td></tr>
+        <tr><td>新製品発売 0年目</td><td>beta_m</td><td>×0.40</td><td>認知度低い段階</td></tr>
+        <tr><td>新製品発売 1年目</td><td>beta_m</td><td>×0.60</td><td>ランプアップ中</td></tr>
+        <tr><td>新製品発売 2年目</td><td>beta_m</td><td>×0.80</td><td>市場定着期</td></tr>
+        <tr><td>新製品発売 3年目以降</td><td>beta_m</td><td>×1.00</td><td>フル効果（成熟期）</td></tr>
+        <tr><td>競合参入</td><td>ec_m</td><td>×0.85</td><td>市場競争激化で早期飽和</td></tr>
+        <tr><td>デジタルチャネル（毎年）</td><td>eta_m</td><td>×(1+0.02)^年数</td><td>デジタル普及率年率2%向上トレンド</td></tr>
+      </tbody>
+    </table>
+
+    <h3 style="margin-top:24px;">レスポンスカーブ（slope_m=1）</h3>
+    <div class="formula-box">
+      <div class="formula-label">ミカエリス-メンテン型（slope=1）</div>
+<pre>効果(x) = beta_m × x / (ec_m + x)
+
+限界効果（微分）= beta_m × ec_m / (ec_m + x)²
+  → LOE後: beta_m 低下 → 天井が下がる
+  → 競合参入: ec_m 低下 → 少ない活動で飽和するが天井も低め</pre>
+    </div>
+
+    <h3 style="margin-top:24px;">Databricks 連携設計</h3>
+    <table class="data-table">
+      <thead><tr><th>フェーズ</th><th>方式</th><th>精度</th><th>工数</th></tr></thead>
+      <tbody>
+        <tr><td>現在</td><td>ダミーパラメータ（mmm_decay_params.csv）</td><td>低</td><td>—</td></tr>
+        <tr><td>Phase 1</td><td>DatabricksからMAP推定値をCSV出力 → mmm_params_export.csv として読込</td><td><strong>高</strong></td><td>小</td></tr>
+        <tr><td>Phase 2</td><td>Databricks REST API ライブ呼び出し（リアルタイム更新）</td><td>最高</td><td>大</td></tr>
+      </tbody>
+    </table>
+    <p style="font-size:12px;color:#666;margin-top:8px;">
+      Phase 1 CSV スキーマ例: <code>product_id, facility_cluster, channel, alpha, beta_m, ec_m, eta_m, mr_time_weight, slope_m</code><br>
+      gamma_gc（品目×施設クラスター）を取り込むことで施設レベルのFTE最適配分が可能になる。
+    </p>
+
+  </div>
+</div><!-- /mmm-lifecycle -->
+
 <!-- ── DATA FILES ─────────────────────────────────────────── -->
 <div class="section-card" id="data-files">
   <div class="section-header">
@@ -1086,7 +1147,7 @@ min_FTE(p) = fy2026_apr_fte(p) × 0.5
       <tbody>
         <tr><td>1</td><td><code>products.csv</code></td><td><span class="tag tag-existing">入力</span></td><td>品目マスタ（product_id, area, is_new, launch_date等）</td></tr>
         <tr><td>2</td><td><code>mindscape.csv</code></td><td><span class="tag tag-existing">入力</span></td><td>品目×セグメント×期の医師数・ウェイト</td></tr>
-        <tr><td>3</td><td><code>mmm_params.csv</code></td><td><span class="tag tag-existing">入力</span></td><td>MMMパラメータ（β, slope, EC）品目別</td></tr>
+        <tr><td>3</td><td><code>mmm_decay_params.csv</code></td><td><span class="tag tag-existing">入力</span></td><td>MMMパラメータ（beta_m, ec_m, eta_m, slope_m=1固定）品目×7チャネル別</td></tr>
         <tr><td>4</td><td><code>digital_soc.csv</code></td><td><span class="tag tag-existing">入力</span></td><td>デジタルSOC率の年次データ</td></tr>
         <tr><td>5</td><td><code>fc_rate.csv</code></td><td><span class="tag tag-existing">入力</span></td><td>品目別FC率（月次）</td></tr>
         <tr><td>6</td><td><code>competition.csv</code></td><td><span class="tag tag-existing">入力</span></td><td>競合環境係数（品目×月）</td></tr>
@@ -1102,7 +1163,7 @@ min_FTE(p) = fy2026_apr_fte(p) × 0.5
 </div><!-- /data-files -->
 
 <div class="doc-footer">
-  Generated by MR FTE Simulation System &nbsp;|&nbsp; 2026-03-31 19:01:48
+  Generated by MR FTE Simulation System &nbsp;|&nbsp; 2026-03-31 19:09:41
 </div>
 
 </div><!-- /content-wrap -->
