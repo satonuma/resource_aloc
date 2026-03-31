@@ -27,7 +27,7 @@ from fy2029_fte_calculator import (
     TargetDoctorCalculator,
     FCScAllocator,
     ActivityFrequencyEstimator,
-    MRDigitalRatioEstimator,
+    DigitalEffectivenessScorer,
     NewProductFTEAllocator,
     normalize_fte_to_headcount,
 )
@@ -137,14 +137,12 @@ class FY2029SensitivityAnalyzer:
             target_doctor_calc=scaled_target_calc,
             fc_sc_allocator=self.base_calc.fc_sc_allocator,
             freq_estimator=freq_est,
-            mr_digital_estimator=self.base_calc.mr_digital_estimator,
             product_info=self.base_calc.product_info,
             current_activities=self.base_calc.current_activities,
             frequency_mode=freq_mode,
             new_product_ramp_up=self.base_calc.new_product_ramp_up,
             reference_products=self.base_calc.reference_products,
             target_months=self.base_calc._target_months,
-            mr_ratio_params=self.base_calc.mr_ratio_params,
         )
 
         if new_product_ids and donor_products and new_product_fte_allocator:

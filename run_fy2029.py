@@ -33,9 +33,10 @@ from fy2029_fte_calculator import (
     TargetDoctorCalculator,
     FCScAllocator,
     ActivityFrequencyEstimator,
-    MRDigitalRatioEstimator,
+    DigitalEffectivenessScorer,
     NewProductFTEAllocator,
     FY2029FTECalculator,
+    _months_between,
     get_fy_months,
     normalize_fte_to_headcount,
     discretize_fte_semiannually,
@@ -268,16 +269,6 @@ def main():
     print(f"[2/6] 品目設定（{PRODUCTS_CSV.name} から読み込み）...")
     product_configs, csv_reference_products = load_product_configs(PRODUCTS_CSV)
 
-    # mr_ratio_params.csv（存在すれば読み込み、なければデフォルト使用）
-    mr_params_path = Path(__file__).parent / "mr_ratio_params.csv"
-    if mr_params_path.exists():
-        mr_params_df = pd.read_csv(mr_params_path)
-        mr_ratio_params = dict(zip(mr_params_df["parameter"], mr_params_df["value"].astype(float)))
-        print(f"       → MR比率パラメータ: {mr_ratio_params}")
-    else:
-        mr_ratio_params = None
-        print("       → mr_ratio_params.csv なし → デフォルト値使用")
-
     # competitor_schedule.csv（競合品発売スケジュール）
     comp_path = Path(__file__).parent / "competitor_schedule.csv"
     if comp_path.exists():
@@ -411,7 +402,7 @@ def main():
         soc_share = mr_eff / total if total > 0 else 0.5
         print(f"          {pid}: MR有効接触={mr_eff:.0f} / デジタル有効接触={dig_eff:.0f} → SOC MR比={soc_share:.2f}")
 
-    mr_digital_estimator = MRDigitalRatioEstimator(
+    digital_scorer = DigitalEffectivenessScorer(
         decay_params_df=data["decay_params_df"],
         soc_activity=soc_activity,
         soc_rates=soc_rates,
@@ -508,7 +499,6 @@ def main():
         target_doctor_calc=target_doctor_calc,
         fc_sc_allocator=fc_sc_allocator,
         freq_estimator=freq_estimator,
-        mr_digital_estimator=mr_digital_estimator,
         product_info=data["product_info"],
         current_activities=data["current_activities"],
         frequency_mode="lifecycle_adjusted",
@@ -518,7 +508,6 @@ def main():
         },
         reference_products=csv_reference_products,  # products.csvのreference_product列
         target_months=ALL_MONTHS,  # FY2026〜2035の120ヶ月
-        mr_ratio_params=mr_ratio_params,            # mr_ratio_params.csv から読み込み
         competition_schedule=competition_schedule,  # competitor_schedule.csv から読み込み
         supply_restrictions=data["supply_restrictions"],  # 供給制限（GLI FY2026等）
     )
@@ -591,6 +580,30 @@ def main():
     total_fte_df  = calculator.total_fte_by_area(fte_df)
     total_fte_fy  = calculator.total_fte_by_area_fy(fte_df)
 
+    # ---- デジタル有効性スコア算出（FTE算出とは独立）----
+    print("  デジタル有効性スコア算出中...")
+    _score_rows = []
+    for config in product_configs:
+        pid = config.product_id
+        # FY2029時点（発売後経過月数・LOE残月数を代表値として使用）
+        _elapsed_repr = max(0, _months_between(config.launch_ym, "2029-10"))
+        _loe_repr = max(0, config.loe_months - _elapsed_repr)
+        s = digital_scorer.score(pid, _elapsed_repr, _loe_repr)
+        _score_rows.append({
+            "product_id":           pid,
+            "digital_score":        s["score"],
+            "digital_level":        s["level"],
+            "mmm_digital_fraction": s["mmm_digital_fraction"],
+            "digital_soc_rate":     s["digital_soc_rate"],
+            "lifecycle_adj":        s["lifecycle_adj"],
+        })
+    digital_score_df = pd.DataFrame(_score_rows).sort_values("digital_score", ascending=False)
+    print("  品目別デジタル有効性スコア（上位順）:")
+    for _, row in digital_score_df.iterrows():
+        print(f"    {row['product_id']:6s}: score={row['digital_score']:.3f} [{row['digital_level']}]"
+              f"  MMM={row['mmm_digital_fraction']:.3f}  SOC={row['digital_soc_rate']:.3f}"
+              f"  LC={row['lifecycle_adj']:+.2f}")
+
     # 結果サマリー表示
     print("\n  --- 品目×年度別 平均FTE ---")
     pivot = summary_df.pivot_table(
@@ -634,6 +647,7 @@ def main():
         per_launch_allocations=per_launch_allocations,
         digital_act_df=data["digital_act"],
         soc_rates=soc_rates,
+        digital_score_df=digital_score_df,
         frequency_mode="lifecycle_adjusted",
         filename="fy2029_fte_report.html",
     )

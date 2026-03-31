@@ -337,40 +337,54 @@ def fig_digital_trend(digital_act_df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def fig_mr_digital_ratio(summary_df: pd.DataFrame, target_fy: str = "") -> go.Figure:
-    """品目別 MR/デジタル比率 水平バー"""
-    df = summary_df.copy().sort_values("avg_mr_ratio")
+def fig_digital_effectiveness(score_df: pd.DataFrame) -> go.Figure:
+    """品目別デジタル有効性スコア 水平バー（MMM・SOC・ライフサイクル合成）"""
+    if score_df is None or score_df.empty:
+        return go.Figure()
+
+    df = score_df.copy().sort_values("digital_score", ascending=True)
+
+    # レベル別カラー
+    color_map = {"高": "#2ca02c", "中": "#ff7f0e", "低": "#d62728"}
+    colors = df["digital_level"].map(color_map).fillna("#aec7e8")
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        name="MR比率",
+        name="デジタル有効性スコア",
         y=df["product_id"],
-        x=df["avg_mr_ratio"] * 100,
+        x=df["digital_score"] * 100,
         orientation="h",
-        marker_color="#1f77b4",
-        text=(df["avg_mr_ratio"] * 100).round(0).astype(int).astype(str) + "%",
-        textposition="inside",
-    ))
-    fig.add_trace(go.Bar(
-        name="デジタル比率",
-        y=df["product_id"],
-        x=df["avg_digital_ratio"] * 100,
-        orientation="h",
-        marker_color="#ff7f0e",
-        text=(df["avg_digital_ratio"] * 100).round(0).astype(int).astype(str) + "%",
-        textposition="inside",
+        marker_color=colors.tolist(),
+        text=df.apply(
+            lambda r: f"{r['digital_score']*100:.0f}% [{r['digital_level']}]", axis=1
+        ),
+        textposition="outside",
+        customdata=df[["mmm_digital_fraction", "digital_soc_rate", "lifecycle_adj"]].values,
+        hovertemplate=(
+            "<b>%{y}</b><br>"
+            "スコア: %{x:.1f}%<br>"
+            "MMM デジタル応答比: %{customdata[0]:.3f}<br>"
+            "SOC デジタル感受性: %{customdata[1]:.3f}<br>"
+            "ライフサイクル補正: %{customdata[2]:+.2f}<extra></extra>"
+        ),
     ))
 
-    fy_label = f" - {target_fy}" if target_fy else ""
     fig.update_layout(
-        barmode="stack",
-        title=f"品目別 MR / デジタル活動比率{fy_label}<br><sup>①MMM Hill総効果量比（活動数補正, W=50%）②SOC有効接触比（活動数×想起率, W=30%）③デフォルト（W=20%）＋ライフサイクル補正で算出</sup>",
-        xaxis_title="比率（%）",
-        xaxis=dict(range=[0, 100]),
-        height=380,
+        title=(
+            "品目別 デジタルチャネル有効性スコア（FY2029時点）<br>"
+            "<sup>①MMM デジタル応答比（W=50%）②SOC デジタル感受性/想起率（W=50%）＋ライフサイクル補正</sup>"
+        ),
+        xaxis_title="スコア（%）",
+        xaxis=dict(range=[0, 110]),
+        height=420,
         template="plotly_white",
-        legend=dict(orientation="h", y=1.05),
+        showlegend=False,
     )
+    # スコアしきい値ライン
+    fig.add_vline(x=55, line_dash="dot", line_color="#2ca02c",
+                  annotation_text="高（55%）", annotation_position="top right")
+    fig.add_vline(x=35, line_dash="dot", line_color="#ff7f0e",
+                  annotation_text="中（35%）", annotation_position="top right")
     return fig
 
 
@@ -976,8 +990,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       </div>
       <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:14px 16px;">
         <div style="font-size:11px;font-weight:700;letter-spacing:1px;opacity:0.7;margin-bottom:6px;">STEP 4</div>
-        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">MR / デジタル比率</div>
-        <div style="font-size:12px;opacity:0.82;">①MMM Hill総効果量比（活動数補正）②SOC有効接触比（活動数×想起率）③発売年数・LOE残年数の3要素を加重平均して推定</div>
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">デジタル有効性スコア</div>
+        <div style="font-size:12px;opacity:0.82;">MR FTEとは独立して算出。①MMM デジタル応答比②SOC デジタル感受性③ライフサイクル補正で品目別チャネル戦略示唆を提供</div>
       </div>
       <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:14px 16px;">
         <div style="font-size:11px;font-weight:700;letter-spacing:1px;opacity:0.7;margin-bottom:6px;">STEP 5</div>
@@ -1030,16 +1044,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <h2>③ 品目別 年度FTEサマリー（FY2029）</h2>
     <div class="chart-grid">
       <div>{chart_fte_bar}</div>
-      <div>{chart_mr_digital}</div>
+      <div>{chart_digital_score}</div>
     </div>
     {table_summary}
-    <h3 style="margin-top:24px;font-size:15px;color:#444;">MR / デジタル比率の算出方法（3要素加重平均）</h3>
+    <h3 style="margin-top:24px;font-size:15px;color:#444;">デジタルチャネル有効性スコアについて</h3>
     <p style="font-size:13px;color:#555;line-height:1.7;margin-bottom:12px;">
-      MR比率は以下3成分の加重平均に、ライフサイクル補正を加えて算出します（最終値は30〜90%にクリップ）。<br>
-      <strong>①MMM Hill総効果量比（W=50%）</strong>：各チャネルの Hill 応答曲線による総効果量（β×x<sup>slope</sup>/(EC<sup>slope</sup>+x<sup>slope</sup>)）を MR/デジタルで比較。活動数が少ない場合の飽和効果を反映。<br>
-      <strong>②SOC有効接触比（W=30%）</strong>：月次活動数 × SOC想起率（下表）で算出した有効接触数の MR 比率。品目間で比較可能な指標。<br>
-      <strong>③デフォルト比率（W=20%）</strong>：65%（業界標準ベースライン）。<br>
-      <strong>ライフサイクル補正</strong>：発売1年未満 +15pt / 1〜2年 +8pt / 2〜3年 +3pt、LOE1年未満 −12pt / 1〜3年 −5pt / LOE後 −20pt。
+      MR FTE（380名CS / 45名PS）はMR活動のみから直接算出しており、デジタルチャネルはFTE計算に影響しません。<br>
+      デジタル有効性スコアはチャネル戦略上の示唆として独立して算出します。<br>
+      <strong>①MMM デジタル応答比（W=50%）</strong>：Hill関数の総効果量 dig_val/(mr_val+dig_val)。活動数補正済みのデジタルチャネル効果量。<br>
+      <strong>②SOC デジタル感受性（W=50%）</strong>：digital_soc_rate（下表）を直接使用。医師が視聴1回でどれだけ想起するかの確率（0〜1）。<br>
+      <strong>ライフサイクル補正</strong>：LOE後 −25pt / LOE1年未満 −20pt / LOE1〜3年 −10pt、発売1年未満 −5pt、成長期（1〜3年） +8pt、成熟期 +5pt。<br>
+      <strong>スコア解釈</strong>：高（55%以上）= m3等デジタル積極活用余地あり / 中（35〜55%）= 選択的活用 / 低（35%未満）= MR中心維持
     </p>
     {table_soc_params}
   </section>
@@ -1161,6 +1176,7 @@ class FY2029HTMLReporter:
         per_launch_allocations: Optional[Dict[str, pd.DataFrame]] = None,
         digital_act_df: Optional[pd.DataFrame] = None,
         soc_rates: Optional[Dict[str, Dict[str, float]]] = None,
+        digital_score_df: Optional[pd.DataFrame] = None,
     ) -> Path:
         """
         HTMLレポートを生成してファイルに保存する。
@@ -1185,8 +1201,9 @@ class FY2029HTMLReporter:
         gap_cs = total_fte_cs - CURRENT_MR_COUNT["CS"]
         gap_ps = total_fte_ps - CURRENT_MR_COUNT["PS"]
 
-        avg_mr_ratio = summary_df["avg_mr_ratio"].mean()
         n_products = fte_df["product_id"].nunique()
+        _score_df = digital_score_df if digital_score_df is not None else pd.DataFrame()
+        avg_digital_score = _score_df["digital_score"].mean() if not _score_df.empty else 0.0
 
         kpi_cards = "".join([
             _kpi_card("算出品目数", str(n_products), "CS+PS"),
@@ -1202,7 +1219,7 @@ class FY2029HTMLReporter:
                 f"{gap_ps:+.1f}",
                 "プラス=不足 / マイナス=余剰",
             ),
-            _kpi_card("平均MR比率", f"{avg_mr_ratio*100:.0f}%", "全品目・全月平均"),
+            _kpi_card("平均デジタル有効性", f"{avg_digital_score*100:.0f}%", "全品目スコア平均"),
         ])
 
         # ---- FC/SC サマリーテーブル ----
@@ -1327,7 +1344,10 @@ class FY2029HTMLReporter:
                 fig_sim_vs_optimal(summary_df, _opt_df), "chart_sim_vs_optimal"
             ),
             chart_fte_bar=_fig_to_html(fig_fte_by_product_bar(summary_latest, TARGET_FY), "chart_fte_bar"),
-            chart_mr_digital=_fig_to_html(fig_mr_digital_ratio(summary_latest, TARGET_FY), "chart_mr_digital"),
+            chart_digital_score=_fig_to_html(
+                fig_digital_effectiveness(digital_score_df if digital_score_df is not None else pd.DataFrame()),
+                "chart_digital_score",
+            ),
             chart_monthly=_fig_to_html(fig_monthly_fte_trend(fte_df), "chart_monthly"),
             chart_fc_sc=_fig_to_html(fig_fc_sc_breakdown(fte_df), "chart_fc_sc"),
             chart_per_launch=_fig_to_html(
@@ -1342,7 +1362,7 @@ class FY2029HTMLReporter:
             table_summary=_df_to_html(
                 summary_latest.drop(columns=["fiscal_year"], errors="ignore"),
                 title=f"品目別年度FTEサマリー（{TARGET_FY}）",
-                bar_cols=["avg_required_fte", "avg_mr_fte"],
+                bar_cols=["avg_required_fte", "max_required_fte"],
             ),
             table_fc_sc=_df_to_html(fc_sc_summary, title="FC/SC医師数内訳"),
             table_ove=_df_to_html(allocation_df, title="ドナー品目別 削減FTE詳細",
