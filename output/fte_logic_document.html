@@ -3,410 +3,1159 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FTE算出ロジックドキュメント (FY2026-2035)</title>
+<title>MR FTE算出システム ロジックドキュメント (FY2026-2035)</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: "Segoe UI", "Helvetica Neue", Arial, "Hiragino Sans", sans-serif;
-    background: #f4f6f9;
-    color: #1a1a2e;
-    display: flex;
-    min-height: 100vh;
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --navy: #0d1b2a;
+    --navy-mid: #132336;
+    --navy-dark: #0f2540;
+    --blue: #2563eb;
+    --blue-light: #3b82f6;
+    --blue-pale: #dbeafe;
+    --amber: #f59e0b;
+    --amber-pale: #fef3c7;
+    --green: #10b981;
+    --green-pale: #d1fae5;
+    --text: #1e293b;
+    --text-muted: #64748b;
+    --bg: #f1f5f9;
+    --card-bg: #ffffff;
+    --border: #e2e8f0;
+    --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.06);
+    --shadow-hover: 0 4px 12px rgba(0,0,0,0.12), 0 8px 32px rgba(0,0,0,0.08);
   }
 
-  /* Sidebar */
+  body {
+    font-family: "Inter", "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    min-height: 100vh;
+    line-height: 1.6;
+    font-size: 15px;
+  }
+
+  /* ── Sidebar ─────────────────────────── */
   nav#sidebar {
-    width: 240px;
-    min-width: 240px;
-    background: #0d1b2a;
+    width: 248px;
+    min-width: 248px;
+    background: var(--navy);
     color: #c9d6df;
     position: sticky;
     top: 0;
     height: 100vh;
     overflow-y: auto;
-    padding: 24px 0;
+    padding: 0 0 32px;
     flex-shrink: 0;
+    scrollbar-width: thin;
+    scrollbar-color: #2d4a6a transparent;
   }
-  nav#sidebar h1 {
-    font-size: 13px;
+  nav#sidebar::-webkit-scrollbar { width: 4px; }
+  nav#sidebar::-webkit-scrollbar-thumb { background: #2d4a6a; border-radius: 2px; }
+
+  .sidebar-logo {
+    padding: 22px 20px 18px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    margin-bottom: 8px;
+  }
+  .sidebar-logo .logo-title {
+    font-size: 12px;
     font-weight: 700;
-    color: #ffffff;
-    padding: 0 20px 16px 20px;
-    border-bottom: 1px solid #1e3a5f;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-  }
-  nav#sidebar ul {
-    list-style: none;
-    padding: 12px 0;
-  }
-  nav#sidebar ul li a {
-    display: block;
-    padding: 9px 20px;
-    color: #94a3b8;
-    text-decoration: none;
-    font-size: 13px;
-    transition: background 0.15s, color 0.15s;
-    border-left: 3px solid transparent;
-  }
-  nav#sidebar ul li a:hover {
-    background: #1e3a5f;
-    color: #e2e8f0;
-    border-left-color: #3b82f6;
-  }
-  .nav-section {
-    display: block;
-    padding: 14px 20px 4px 20px;
-    font-size: 10px;
-    font-weight: 700;
-    color: #4a6fa5;
-    text-transform: uppercase;
     letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--blue-light);
+    margin-bottom: 2px;
+  }
+  .sidebar-logo .logo-sub {
+    font-size: 11px;
+    color: #7a99b0;
   }
 
-  /* Main content */
-  main {
-    flex: 1;
-    padding: 40px 48px;
-    max-width: 960px;
-  }
-
-  .page-title {
-    font-size: 26px;
-    font-weight: 700;
-    color: #0d1b2a;
-    margin-bottom: 6px;
-  }
-  .page-subtitle {
-    font-size: 14px;
-    color: #64748b;
-    margin-bottom: 36px;
-  }
-
-  section {
-    background: #ffffff;
-    border-radius: 10px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.07);
-    padding: 28px 32px;
-    margin-bottom: 28px;
-  }
-  section h2 {
-    font-size: 18px;
-    font-weight: 700;
-    color: #0d1b2a;
-    margin-bottom: 18px;
-    padding-bottom: 10px;
-    border-bottom: 2px solid #3b82f6;
+  nav#sidebar a {
     display: flex;
     align-items: center;
     gap: 10px;
+    padding: 9px 20px;
+    color: #8fa8be;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    border-left: 3px solid transparent;
+    transition: all 0.18s ease;
   }
-  .step-badge {
-    background: #3b82f6;
+  nav#sidebar a:hover {
+    color: #e2eaf0;
+    background: rgba(255,255,255,0.06);
+    border-left-color: var(--blue-light);
+  }
+  nav#sidebar a.active {
     color: #ffffff;
+    background: rgba(37,99,235,0.18);
+    border-left-color: var(--blue);
+  }
+  .nav-step-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(37,99,235,0.25);
+    color: var(--blue-light);
+    font-size: 10px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  nav#sidebar .nav-section-label {
+    padding: 14px 20px 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #4a6b82;
+  }
+
+  /* ── Main content ───────────────────── */
+  main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 0 64px;
+    max-width: 960px;
+  }
+
+  /* ── Hero ───────────────────────────── */
+  .hero {
+    background: linear-gradient(135deg, #0d1b2a 0%, #132d50 60%, #1a3a6b 100%);
+    color: white;
+    padding: 56px 48px 48px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: "";
+    position: absolute;
+    top: -60px; right: -60px;
+    width: 320px; height: 320px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(37,99,235,0.15) 0%, transparent 70%);
+  }
+  .hero::after {
+    content: "";
+    position: absolute;
+    bottom: -40px; left: 40%;
+    width: 200px; height: 200px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(16,185,129,0.08) 0%, transparent 70%);
+  }
+  .hero-eyebrow {
     font-size: 11px;
     font-weight: 700;
-    padding: 3px 9px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--blue-light);
+    margin-bottom: 12px;
+    position: relative;
+  }
+  .hero h1 {
+    font-size: 32px;
+    font-weight: 800;
+    line-height: 1.2;
+    margin-bottom: 12px;
+    position: relative;
+  }
+  .hero h1 span { color: var(--blue-light); }
+  .hero-desc {
+    font-size: 15px;
+    color: #94afc5;
+    max-width: 560px;
+    margin-bottom: 36px;
+    position: relative;
+  }
+  .kpi-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    position: relative;
+  }
+  .kpi-badge {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 8px;
+    padding: 12px 18px;
+    backdrop-filter: blur(8px);
+    transition: background 0.2s;
+  }
+  .kpi-badge:hover { background: rgba(255,255,255,0.13); }
+  .kpi-badge .kpi-value {
+    font-size: 22px;
+    font-weight: 800;
+    color: #ffffff;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .kpi-badge .kpi-label {
+    font-size: 11px;
+    color: #7aa0be;
+    font-weight: 500;
+  }
+
+  /* ── Section cards ──────────────────── */
+  .content-wrap { padding: 32px 40px; }
+
+  .section-card {
+    background: var(--card-bg);
     border-radius: 12px;
+    box-shadow: var(--shadow);
+    margin-bottom: 28px;
+    overflow: hidden;
+    transition: box-shadow 0.2s ease;
+    border: 1px solid var(--border);
+  }
+  .section-card:hover { box-shadow: var(--shadow-hover); }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 20px 28px 18px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+  }
+  .step-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: var(--blue);
+    color: white;
+    font-size: 14px;
+    font-weight: 800;
+    flex-shrink: 0;
+    box-shadow: 0 2px 8px rgba(37,99,235,0.35);
+  }
+  .step-badge.star {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    box-shadow: 0 2px 8px rgba(245,158,11,0.35);
+  }
+  .step-badge.digital {
+    background: linear-gradient(135deg, #0891b2, #0e7490);
+    box-shadow: 0 2px 8px rgba(8,145,178,0.35);
+  }
+  .section-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .section-subtitle {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .section-body { padding: 24px 28px; }
+
+  /* ── Formula boxes ──────────────────── */
+  .formula-box {
+    background: var(--navy-dark);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin: 16px 0;
+    font-family: "Cascadia Code", "Fira Code", "Consolas", "Courier New", monospace;
+    font-size: 13.5px;
+    line-height: 1.85;
+    color: #e2f0ff;
+    border-left: 4px solid var(--blue);
+    overflow-x: auto;
+  }
+  .formula-box .formula-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--blue-light);
+    margin-bottom: 8px;
+    font-family: "Inter", "Segoe UI", sans-serif;
+  }
+  .formula-box .highlight { color: #fbbf24; font-weight: 600; }
+  .formula-box .comment { color: #64748b; }
+
+  .formula-box-compact {
+    background: var(--navy-dark);
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin: 10px 0;
+    font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+    font-size: 13px;
+    line-height: 1.75;
+    color: #e2f0ff;
+    border-left: 3px solid var(--blue-light);
+    overflow-x: auto;
+  }
+
+  /* ── Summary formula box (overview) ── */
+  .summary-formula-box {
+    background: var(--navy-dark);
+    border-radius: 10px;
+    padding: 24px 28px;
+    margin: 20px 0;
+    font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+    font-size: 12.5px;
+    line-height: 2.0;
+    color: #d4e8ff;
+    border: 1px solid rgba(37,99,235,0.3);
+    overflow-x: auto;
+  }
+  .summary-formula-box .sfb-section {
+    color: #60a5fa;
+    font-weight: 700;
+    font-size: 11.5px;
+    letter-spacing: 0.05em;
+    margin-top: 14px;
+    margin-bottom: 4px;
+    display: block;
+    font-family: "Inter", "Segoe UI", sans-serif;
+    text-transform: uppercase;
+  }
+  .summary-formula-box .sfb-section:first-child { margin-top: 0; }
+
+  /* ── Pipeline flow ──────────────────── */
+  .pipeline-wrap {
+    padding: 8px 0 16px;
+    overflow-x: auto;
+  }
+  .pipeline {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-wrap: nowrap;
+    min-width: max-content;
+  }
+  .pipeline-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .pipeline-box {
+    background: var(--blue);
+    color: white;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
     white-space: nowrap;
+    min-width: 90px;
+    box-shadow: 0 2px 8px rgba(37,99,235,0.3);
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .pipeline-box:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(37,99,235,0.4);
+  }
+  .pipeline-box.input-box {
+    background: linear-gradient(135deg, #374151, #1f2937);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  }
+  .pipeline-box.output-box {
+    background: linear-gradient(135deg, #059669, #047857);
+    box-shadow: 0 2px 8px rgba(5,150,105,0.3);
+  }
+  .pipeline-box.digital-box {
+    background: linear-gradient(135deg, #0891b2, #0e7490);
+    box-shadow: 0 2px 8px rgba(8,145,178,0.3);
+  }
+  .pipeline-step-num {
+    font-size: 10px;
+    color: rgba(255,255,255,0.7);
+    font-weight: 500;
+  }
+  .pipeline-arrow {
+    color: #94a3b8;
+    font-size: 20px;
+    padding: 0 6px;
+    line-height: 1;
+    margin-bottom: 18px;
+  }
+  .pipeline-branch {
+    display: flex;
+    align-items: center;
+    margin-top: 16px;
+    gap: 12px;
+  }
+  .branch-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  /* ── Info boxes ─────────────────────── */
+  .info-box {
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 12px 0;
+    font-size: 14px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .info-box.blue {
+    background: var(--blue-pale);
+    border-left: 4px solid var(--blue);
+    color: #1e40af;
+  }
+  .info-box.amber {
+    background: var(--amber-pale);
+    border-left: 4px solid var(--amber);
+    color: #92400e;
+  }
+  .info-box.green {
+    background: var(--green-pale);
+    border-left: 4px solid var(--green);
+    color: #065f46;
+  }
+  .info-icon { font-size: 18px; flex-shrink: 0; }
+
+  /* ── Amber number badge ─────────────── */
+  .num-badge {
+    display: inline-block;
+    background: var(--amber);
+    color: #1c0a00;
+    border-radius: 5px;
+    padding: 1px 8px;
+    font-size: 13px;
+    font-weight: 700;
+    margin: 0 2px;
+  }
+
+  /* ── Tables ─────────────────────────── */
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    margin: 14px 0;
+  }
+  .data-table th {
+    background: #f1f5f9;
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 11.5px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+  }
+  .data-table td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .data-table tbody tr:hover { background: #f8fafc; }
+  .data-table tbody tr:last-child td { border-bottom: none; }
+
+  .tag {
+    display: inline-block;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .tag-new { background: #fce7f3; color: #9d174d; }
+  .tag-existing { background: var(--green-pale); color: #065f46; }
+  .tag-cs { background: var(--blue-pale); color: #1e40af; }
+  .tag-ps { background: #ede9fe; color: #5b21b6; }
+
+  /* ── Two-column layout ───────────────── */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 14px 0;
+  }
+  @media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
+
+  .mini-card {
+    background: #f8fafc;
+    border-radius: 8px;
+    padding: 16px 18px;
+    border: 1px solid var(--border);
+  }
+  .mini-card h4 {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  /* ── Generated at footer ────────────── */
+  .doc-footer {
+    text-align: center;
+    padding: 32px;
+    font-size: 12px;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border);
+    margin-top: 8px;
   }
 
   h3 {
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 700;
-    color: #1e3a5f;
-    margin: 18px 0 8px 0;
+    color: var(--text);
+    margin: 20px 0 10px;
   }
-  p {
-    font-size: 14px;
-    line-height: 1.7;
-    color: #374151;
-    margin-bottom: 10px;
-  }
-  ul.logic-list {
-    list-style: none;
-    padding: 0;
-    margin-bottom: 12px;
-  }
-  ul.logic-list li {
-    font-size: 14px;
-    line-height: 1.7;
-    color: #374151;
-    padding: 4px 0 4px 18px;
-    position: relative;
-  }
-  ul.logic-list li::before {
-    content: "B8";
-    position: absolute;
-    left: 0;
-    color: #3b82f6;
-    font-size: 12px;
-  }
+  h3:first-child { margin-top: 0; }
+  p { margin: 8px 0; color: var(--text); }
+  ul, ol { margin: 8px 0 8px 20px; }
+  li { margin: 4px 0; }
 
-  .formula-box {
-    background: #f0f4ff;
-    border: 1px solid #bfcfff;
-    border-left: 4px solid #3b82f6;
-    border-radius: 6px;
-    padding: 14px 18px;
-    margin: 14px 0;
-    font-family: "Consolas", "Courier New", monospace;
-    font-size: 13px;
-    color: #1e3a5f;
-    line-height: 1.8;
-    white-space: pre-wrap;
-    word-break: break-all;
-  }
-
-  .info-box {
-    background: #ecfdf5;
-    border: 1px solid #6ee7b7;
-    border-left: 4px solid #10b981;
-    border-radius: 6px;
-    padding: 12px 16px;
-    margin: 12px 0;
-    font-size: 13px;
-    color: #064e3b;
-    line-height: 1.6;
-  }
-
-  table.data-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-    margin-top: 10px;
-  }
-  table.data-table thead th {
-    background: #0d1b2a;
-    color: #e2e8f0;
-    padding: 10px 14px;
-    text-align: left;
-    font-weight: 600;
-  }
-  table.data-table tbody tr:nth-child(odd) {
-    background: #f8fafc;
-  }
-  table.data-table tbody tr:nth-child(even) {
-    background: #ffffff;
-  }
-  table.data-table tbody td {
-    padding: 9px 14px;
-    border-bottom: 1px solid #e2e8f0;
-    vertical-align: top;
-  }
-  table.data-table tbody td:first-child {
-    font-family: "Consolas", "Courier New", monospace;
-    color: #1e3a5f;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-
-  footer {
-    margin-top: 40px;
-    padding: 16px 0;
-    font-size: 12px;
-    color: #94a3b8;
-    border-top: 1px solid #e2e8f0;
-  }
+  /* scrollbar for main */
+  main::-webkit-scrollbar { width: 6px; }
+  main::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
 </style>
 </head>
 <body>
 
+<!-- ═══════════════════════ SIDEBAR ═══════════════════════ -->
 <nav id="sidebar">
-  <h1>FTE ロジック</h1>
-  <ul>
-    <li><span class="nav-section">ステップ</span></li>
-    <li><a href="#step1">STEP 1: ターゲット医師数</a></li>
-    <li><a href="#step2">STEP 2: FC/SC分割</a></li>
-    <li><a href="#step3">STEP 3: 訪問頻度推定</a></li>
-    <li><a href="#step4">STEP 4: MR FTE算出</a></li>
-    <li><a href="#step5">STEP 5: HC正規化</a></li>
-    <li><a href="#step6">STEP 6: 新発売品FTE配分</a></li>
-    <li><span class="nav-section">別途分析</span></li>
-    <li><a href="#digital">デジタル有効性スコア</a></li>
-    <li><span class="nav-section">参照</span></li>
-    <li><a href="#datafiles">データファイル一覧</a></li>
-  </ul>
+  <div class="sidebar-logo">
+    <div class="logo-title">MR FTE System</div>
+    <div class="logo-sub">FY2026–2035 ロジック仕様書</div>
+  </div>
+
+  <div class="nav-section-label">概要</div>
+  <a href="#overview" class="active">
+    <span class="nav-step-badge">★</span> 概要・全体フロー
+  </a>
+  <a href="#data-files">
+    <span class="nav-step-badge">D</span> データファイル一覧
+  </a>
+
+  <div class="nav-section-label">FTE算出ステップ</div>
+  <a href="#step1">
+    <span class="nav-step-badge">1</span> ターゲット医師数
+  </a>
+  <a href="#step2">
+    <span class="nav-step-badge">2</span> FC/SC分割
+  </a>
+  <a href="#step3">
+    <span class="nav-step-badge">3</span> 訪問頻度推定
+  </a>
+  <a href="#step4">
+    <span class="nav-step-badge">4</span> MR FTE算出
+  </a>
+  <a href="#step5">
+    <span class="nav-step-badge">5</span> HC正規化・離散化
+  </a>
+  <a href="#step6">
+    <span class="nav-step-badge">6</span> 新発売品FTE配分
+  </a>
+
+  <div class="nav-section-label">独立分析</div>
+  <a href="#digital">
+    <span class="nav-step-badge">D</span> デジタル有効性スコア
+  </a>
 </nav>
 
+<!-- ═══════════════════════ MAIN ═══════════════════════════ -->
 <main>
-  <div class="page-title">FTE算出ロジックドキュメント</div>
-  <div class="page-subtitle">FY2026&#8211;2035 MR FTEシミュレーション &#47; 現行システム設計仕様</div>
 
-  <!-- STEP 1 -->
-  <section id="step1">
-    <h2><span class="step-badge">STEP 1</span>ターゲット医師数</h2>
-    <h3>既存品目</h3>
-    <p><code>target_doctors.csv</code> から直読みする（過去活動データからの集計は廃止）。</p>
+<!-- ── HERO ──────────────────────────────────────────────── -->
+<div class="hero">
+  <div class="hero-eyebrow">Technical Specification Document · Ver 2.0</div>
+  <h1>MR FTE 算出システム<br><span>ロジックドキュメント</span></h1>
+  <p class="hero-desc">
+    Marketing-Mix Model (MMM) および ライフサイクル調整を組み合わせた
+    MR（医薬情報担当者）FTE シミュレーションシステムの完全技術仕様書。
+    FY2026〜FY2035 の10年間、19品目を対象とした月次最適配分を定義します。
+  </p>
+  <div class="kpi-row">
+    <div class="kpi-badge">
+      <div class="kpi-value">FY2026–35</div>
+      <div class="kpi-label">対象期間（10年間）</div>
+    </div>
+    <div class="kpi-badge">
+      <div class="kpi-value">19品目</div>
+      <div class="kpi-label">対象医薬品</div>
+    </div>
+    <div class="kpi-badge">
+      <div class="kpi-value">CS 380 / PS 45</div>
+      <div class="kpi-label">HC正規化ターゲット（名）</div>
+    </div>
+    <div class="kpi-badge">
+      <div class="kpi-value">品目×月別</div>
+      <div class="kpi-label">FTE算出粒度</div>
+    </div>
+  </div>
+</div>
 
-    <h3>新製品</h3>
-    <p><code>mindscape_segments.csv</code> と <code>products.csv</code> の <code>mindscape_target_pct</code> 列を組み合わせて算出する。</p>
-    <ul class="logic-list">
-      <li>セグメント定義: (pct_from, pct_to, doctor_count) の行で構成</li>
-      <li>条件: pct_to &lt;= mindscape_target_pct のセグメントの doctor_count を合計</li>
-    </ul>
-    <div class="formula-box">例（top % &#8594; 医師数）:
-  OVE  (top 40%) &#8594; 1,100名
-  Zaso (top 20%) &#8594;   300名
-  WSA  (top 60%) &#8594; 1,190名
-  GLO  (top 40%) &#8594;   720名</div>
+<div class="content-wrap">
 
-    <h3>フォールバック（mindscape_segments未定義時）</h3>
-    <div class="formula-box">target_doctors = ref_product_doctors &#215; (患者数比) &#215; &#8730;(効能数比)</div>
+<!-- ── OVERVIEW ──────────────────────────────────────────── -->
+<div class="section-card" id="overview">
+  <div class="section-header">
+    <span class="step-badge star">★</span>
+    <div>
+      <div class="section-title">概要・全体フロー</div>
+      <div class="section-subtitle">システム全体の処理パイプラインと主要数式のサマリー</div>
+    </div>
+  </div>
+  <div class="section-body">
 
-    <h3>ランプアップカーブ</h3>
-    <p>発売後月数に応じた浸透率を乗算し、市場導入期の段階的な医師到達を表現する。</p>
-  </section>
+    <h3>処理パイプライン</h3>
+    <div class="pipeline-wrap">
+      <div class="pipeline">
+        <div class="pipeline-node">
+          <div class="pipeline-box input-box">データ入力</div>
+          <div class="pipeline-step-num">CSV/設定</div>
+        </div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-node">
+          <div class="pipeline-box">ターゲット医師数</div>
+          <div class="pipeline-step-num">STEP 1</div>
+        </div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-node">
+          <div class="pipeline-box">FC/SC分割</div>
+          <div class="pipeline-step-num">STEP 2</div>
+        </div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-node">
+          <div class="pipeline-box">訪問頻度</div>
+          <div class="pipeline-step-num">STEP 3</div>
+        </div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-node">
+          <div class="pipeline-box">FTE算出</div>
+          <div class="pipeline-step-num">STEP 4</div>
+        </div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-node">
+          <div class="pipeline-box">正規化</div>
+          <div class="pipeline-step-num">STEP 5</div>
+        </div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-node">
+          <div class="pipeline-box">新製品配分</div>
+          <div class="pipeline-step-num">STEP 6</div>
+        </div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-node">
+          <div class="pipeline-box output-box">MR FTE 出力</div>
+          <div class="pipeline-step-num">最終結果</div>
+        </div>
+      </div>
+      <div class="pipeline-branch">
+        <div class="branch-label">独立分析：</div>
+        <div class="pipeline-box digital-box" style="min-width:200px; font-size:12px;">
+          デジタル有効性スコア（独立分析）
+        </div>
+      </div>
+    </div>
 
-  <!-- STEP 2 -->
-  <section id="step2">
-    <h2><span class="step-badge">STEP 2</span>FC / SC 分割</h2>
-    <ul class="logic-list">
-      <li><strong>FC（ファーストコール）</strong>: 主訪問品目</li>
-      <li><strong>SC（セカンドコール）</strong>: FC訪問に付随。FTEコスト = FC &#215; SC_COEFFICIENT（= 0.1）</li>
-    </ul>
-    <h3>SC &#8594; FC 格上げルール</h3>
-    <p>SC品目のうち、FC品目の医師リストと重複しない医師はSCとして活動できないため、FCに格上げする。</p>
-    <div class="formula-box">品目間被り率 = |FCリスト &#8745; SCリスト| / |SCリスト|</div>
-    <h3>実効FC比率</h3>
-    <ul class="logic-list">
-      <li>優先: <code>fc_sc_ratio.csv</code> で明示指定された値を使用</li>
-      <li>代替: 上記の被り率から自動計算</li>
-    </ul>
-  </section>
+    <h3 style="margin-top:28px;">主要式まとめ</h3>
+    <div class="summary-formula-box">
+<span class="sfb-section">STEP 4 — MR FTE算出</span>FTE = (FC医師数 × FC訪問頻度 + SC医師数 × 0.1) ÷ (20日/月 × コール/日)
+  CS: コール/日 = 2.5  →  月間キャパ = 50 コール/FTE
+  PS: コール/日 = 1.5  →  月間キャパ = 30 コール/FTE
 
-  <!-- STEP 3 -->
-  <section id="step3">
-    <h2><span class="step-badge">STEP 3</span>訪問頻度推定</h2>
-    <ul class="logic-list">
-      <li><strong>FC</strong>: ライフサイクル調整済み訪問頻度（発売・LOE・競合ブーストを反映）</li>
-      <li><strong>SC</strong>: FC訪問に内包 &#8594; 追加コールなし（FTEコストのみ 0.1倍）</li>
-    </ul>
-    <p>競合品発売スケジュールは <code>competitor_schedule.csv</code> を参照してFTEブーストを算出する。</p>
-  </section>
+<span class="sfb-section">STEP 5 — ヘッドカウント正規化</span>adjusted_FTE_i = base_FTE_i × (HC_target ÷ Σ base_FTE)
+  CS目標: 380名   PS目標: 45名
 
-  <!-- STEP 4 -->
-  <section id="step4">
-    <h2><span class="step-badge">STEP 4</span>MR FTE算出（デジタル比率不使用）</h2>
-    <div class="formula-box">FTE = (FC医師数 &#215; FC訪問頻度 + SC医師数 &#215; SC_COEFFICIENT)
-    &#247; (稼働日[20日/月] &#215; コール/日)</div>
-    <table class="data-table" style="margin-top:14px;width:auto;">
-      <thead>
-        <tr><th>チーム</th><th>コール/日</th><th>HC上限</th></tr>
-      </thead>
-      <tbody>
-        <tr><td>CS（一般MR）</td><td>2.5</td><td>380名</td></tr>
-        <tr><td>PS（専門MR）</td><td>1.5</td><td>45名</td></tr>
-      </tbody>
-    </table>
-    <div class="info-box">デジタルはFTE計算に影響しない。MR 380名CS / 45名PSはMR活動のみで決まる。</div>
-  </section>
+<span class="sfb-section">STEP 6 — 新製品 ドナー選定（限界ROI）</span>marginal_ROI(p) = β_p × slope_p × (EC_p^slope_p × x^(slope_p−1))
+                           ÷ (EC_p^slope_p + x^slope_p)²
+削減上限: fy2026_apr_fte(p) × 0.5 を最低保護（50%まで削減可）
 
-  <!-- STEP 5 -->
-  <section id="step5">
-    <h2><span class="step-badge">STEP 5</span>ヘッドカウント正規化</h2>
-    <ul class="logic-list">
-      <li>月次・領域別FTE合計を CS=380、PS=45 にスケーリング</li>
-      <li>品目間の相対比は保持される</li>
-      <li>半期（H1: 4&#8211;9月、H2: 10&#8211;3月）ごとにステップ関数化</li>
-    </ul>
-    <div class="formula-box">normalized_FTE_i = raw_FTE_i &#215; (HC_target / &#931;raw_FTE_all)</div>
-  </section>
+<span class="sfb-section">デジタル有効性スコア（FTEとは独立）</span>base  = 0.5 × [dig_hill(x_d) ÷ (mr_hill(x_m) + dig_hill(x_d))]
+        + 0.5 × digital_soc_rate
+score = clip(base + lifecycle_adj,  0.0,  1.0)
+    </div>
 
-  <!-- STEP 6 -->
-  <section id="step6">
-    <h2><span class="step-badge">STEP 6</span>新発売品FTE配分</h2>
-    <ul class="logic-list">
-      <li><code>fy2026_apr_fte</code> = FY2026/4時点の実績FTE（削減上限として使用）</li>
-      <li>限界ROI = beta &#215; hill_marginal(x, ec, slope) が低い品目ほど優先的に削減</li>
-      <li>削減下限: fy2026_apr_fte &#215; 0.5（最低50%保護）</li>
-      <li>新品目の成長（ランチカーブ）に比例して月別段階的に移動</li>
-    </ul>
-    <div class="formula-box">限界ROI = beta &#215; hill_marginal(x, ec, slope)
-削減量_上限 = current_fte &#8722; max(fy2026_apr_fte &#215; 0.5, target_fte)</div>
-    <p>Hill関数パラメータ (beta, ec, slope) は <code>mmm_decay_params.csv</code> から参照する。</p>
-  </section>
-
-  <!-- Digital -->
-  <section id="digital">
-    <h2>別途分析: デジタル有効性スコア（FTEとは独立）</h2>
-    <p>品目ごとのデジタル戦略的価値を 0&#8211;1 でスコア化する。FTE算出には影響しない。</p>
-
-    <h3>スコア構成要素</h3>
-    <table class="data-table" style="margin-top:10px;">
-      <thead>
-        <tr><th>指標</th><th>重み</th><th>内容</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>MMM デジタル応答比</td>
-          <td>50%</td>
-          <td>dig_hill_value / (mr_hill_value + dig_hill_value)</td>
-        </tr>
-        <tr>
-          <td>SOC デジタル感受性</td>
-          <td>50%</td>
-          <td>digital_soc_rate（視聴1回あたりの想起確率）</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <h3>ライフサイクル補正</h3>
-    <table class="data-table" style="margin-top:10px;">
-      <thead>
-        <tr><th>条件</th><th>補正値</th></tr>
-      </thead>
-      <tbody>
-        <tr><td>LOE後</td><td>&#8722;25 pt</td></tr>
-        <tr><td>LOE まで &lt; 1年</td><td>&#8722;20 pt</td></tr>
-        <tr><td>LOE まで 1&#8211;3年</td><td>&#8722;10 pt</td></tr>
-        <tr><td>発売 &lt; 1年</td><td>&#8722;5 pt</td></tr>
-        <tr><td>成長期</td><td>+8 pt</td></tr>
-        <tr><td>成熟期</td><td>+5 pt</td></tr>
-      </tbody>
-    </table>
-
-    <h3>スコア判定</h3>
-    <table class="data-table" style="margin-top:10px;">
-      <thead>
-        <tr><th>スコア</th><th>判定</th><th>推奨アクション</th></tr>
-      </thead>
-      <tbody>
-        <tr><td>&#8805; 55%</td><td>高</td><td>m3等デジタル積極活用</td></tr>
-        <tr><td>35&#8211;55%</td><td>中</td><td>選択的デジタル活用</td></tr>
-        <tr><td>&lt; 35%</td><td>低</td><td>MR中心維持</td></tr>
-      </tbody>
-    </table>
-  </section>
-
-  <!-- Data files -->
-  <section id="datafiles">
-    <h2>データファイル一覧</h2>
+    <h3>対象品目一覧（19品目）</h3>
     <table class="data-table">
       <thead>
-        <tr><th>ファイル名</th><th>用途</th></tr>
+        <tr>
+          <th>#</th>
+          <th>品目ID</th>
+          <th>エリア</th>
+          <th>区分</th>
+        </tr>
       </thead>
       <tbody>
-        <tr><td>target_doctors.csv</td><td>既存品目のターゲット医師数（正値）</td></tr>
-        <tr><td>mindscape_segments.csv</td><td>product_id, pct_from, pct_to, doctor_count（新製品用）</td></tr>
-        <tr><td>products.csv</td><td>品目設定（mindscape_target_pct 列含む）</td></tr>
-        <tr><td>fc_sc_ratio.csv</td><td>FC比率明示指定</td></tr>
-        <tr><td>activity_set.csv</td><td>FC/SC品目セット</td></tr>
-        <tr><td>target_doctor_ranges.csv</td><td>医師IDレンジ（被り率計算用）</td></tr>
-        <tr><td>mmm_decay_params.csv</td><td>Hill関数パラメータ (beta, ec, slope)</td></tr>
-        <tr><td>current_fte.csv</td><td>FY2026/4時点実績FTE（fy2026_apr_fte）</td></tr>
-        <tr><td>soc_params.csv</td><td>品目別MR/デジタル想起率（SOCスコア用）</td></tr>
-        <tr><td>current_activities.csv</td><td>月次MR/デジタル活動量</td></tr>
-        <tr><td>competitor_schedule.csv</td><td>競合品発売スケジュール（FTEブースト）</td></tr>
-        <tr><td>supply_restriction.csv</td><td>供給制限スケジュール</td></tr>
+        <tr><td>1</td><td>PROD_CS_01</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>2</td><td>PROD_CS_02</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>3</td><td>PROD_CS_03</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>4</td><td>PROD_CS_04</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>5</td><td>PROD_CS_05</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>6</td><td>PROD_CS_06</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>7</td><td>PROD_CS_07</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>8</td><td>PROD_CS_08</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>9</td><td>PROD_CS_09</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>10</td><td>PROD_CS_10</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>11</td><td>PROD_CS_11</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>12</td><td>PROD_CS_12</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>13</td><td>PROD_CS_13</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>14</td><td>PROD_CS_NEW</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-new">新発売品</span></td></tr>
+        <tr><td>15</td><td>PROD_PS_01</td><td><span class="tag tag-ps">PS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>16</td><td>PROD_PS_02</td><td><span class="tag tag-ps">PS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>17</td><td>PROD_PS_03</td><td><span class="tag tag-ps">PS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>18</td><td>PROD_PS_04</td><td><span class="tag tag-ps">PS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>19</td><td>PROD_PS_NEW</td><td><span class="tag tag-ps">PS</span></td><td><span class="tag tag-new">新発売品</span></td></tr>
       </tbody>
     </table>
-  </section>
+  </div>
+</div><!-- /overview -->
 
-  <footer>
-    FTE算出システム &#47; 生成: 2026-03-31 14:02:40
-  </footer>
+<!-- ── STEP 1 ─────────────────────────────────────────────── -->
+<div class="section-card" id="step1">
+  <div class="section-header">
+    <span class="step-badge">1</span>
+    <div>
+      <div class="section-title">ターゲット医師数の決定</div>
+      <div class="section-subtitle">マインドスケープ区分に基づくセグメント別医師数の集計</div>
+    </div>
+  </div>
+  <div class="section-body">
+    <p>
+      製品ごとに定義された <strong>マインドスケープ（Mindscape）</strong> セグメントの訪問優先度スコアと、
+      セグメント別医師数を掛け合わせ、当該製品の実質的なターゲット医師数を算出します。
+    </p>
+    <h3>主要式</h3>
+    <div class="formula-box">
+      <div class="formula-label">STEP 1 — ターゲット医師数</div>
+target_drs(p) = Σ<sub>s</sub> [ mindscape_weight(p, s) × dr_count(p, s) ]
+    </div>
+    <h3>マインドスケープ区分</h3>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>セグメント</th>
+          <th>説明</th>
+          <th>標準ウェイト</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Champion</strong></td><td>積極的に使用・推奨する医師</td><td><span class="num-badge">1.0</span></td></tr>
+        <tr><td><strong>Loyalist</strong></td><td>安定使用層</td><td><span class="num-badge">0.8</span></td></tr>
+        <tr><td><strong>Follower</strong></td><td>競合品も使用するが自社品も使う</td><td><span class="num-badge">0.6</span></td></tr>
+        <tr><td><strong>Fence Sitter</strong></td><td>未決定・態度保留層</td><td><span class="num-badge">0.4</span></td></tr>
+        <tr><td><strong>Competitor</strong></td><td>競合品メイン使用層</td><td><span class="num-badge">0.2</span></td></tr>
+        <tr><td><strong>Non-user</strong></td><td>未使用・接触不要</td><td><span class="num-badge">0.0</span></td></tr>
+      </tbody>
+    </table>
+    <div class="info-box blue">
+      <span class="info-icon">ℹ️</span>
+      <span>
+        マインドスケープCSVが存在しない場合は、<strong>フォールバック式</strong>を使用：
+        <code>target_drs(p) = total_dr_universe(p) × default_targeting_rate(p)</code>
+      </span>
+    </div>
+  </div>
+</div><!-- /step1 -->
+
+<!-- ── STEP 2 ─────────────────────────────────────────────── -->
+<div class="section-card" id="step2">
+  <div class="section-header">
+    <span class="step-badge">2</span>
+    <div>
+      <div class="section-title">FC / SC 分割</div>
+      <div class="section-subtitle">ターゲット医師を First Call / Second Call に区分する</div>
+    </div>
+  </div>
+  <div class="section-body">
+    <p>
+      ターゲット医師を訪問優先度の高い <strong>FC（First Call）</strong> と
+      それ以外の <strong>SC（Second Call）</strong> に分類します。
+      FC は訪問頻度が高く、FTE への寄与が大きくなります。
+    </p>
+    <h3>分割式</h3>
+    <div class="formula-box">
+      <div class="formula-label">STEP 2 — FC/SC 分割</div>
+FC_drs(p) = target_drs(p) × fc_rate(p)
+SC_drs(p) = target_drs(p) × (1 − fc_rate(p))
+
+<span class="comment"># オーバーラップ（複数品目で同一医師を訪問）を考慮したFCオフセット</span>
+effective_FC(p) = FC_drs(p) − overlap_offset(p)
+    </div>
+    <h3>SC → FC アップグレードルール</h3>
+    <div class="info-box amber">
+      <span class="info-icon">⚠️</span>
+      <span>
+        SC 医師のうち、マインドスケープスコアが閾値（<span class="num-badge">0.5</span>）を超えた場合、
+        翌期に FC へ自動アップグレードされます。アップグレード率は
+        <code>sc_upgrade_rate</code>（デフォルト <span class="num-badge">10%</span>/年）で制御します。
+      </span>
+    </div>
+    <div class="two-col">
+      <div class="mini-card">
+        <h4>CS エリア標準値</h4>
+        <p>FC 率： <span class="num-badge">40–60%</span></p>
+        <p>SC 訪問頻度係数： <span class="num-badge">0.1</span></p>
+      </div>
+      <div class="mini-card">
+        <h4>PS エリア標準値</h4>
+        <p>FC 率： <span class="num-badge">30–50%</span></p>
+        <p>SC 訪問頻度係数： <span class="num-badge">0.1</span></p>
+      </div>
+    </div>
+  </div>
+</div><!-- /step2 -->
+
+<!-- ── STEP 3 ─────────────────────────────────────────────── -->
+<div class="section-card" id="step3">
+  <div class="section-header">
+    <span class="step-badge">3</span>
+    <div>
+      <div class="section-title">訪問頻度の推定</div>
+      <div class="section-subtitle">製品ライフサイクルと競合環境に基づく月次訪問頻度の算出</div>
+    </div>
+  </div>
+  <div class="section-body">
+    <p>
+      FC医師あたりの月間訪問頻度は、製品の <strong>ライフサイクルステージ</strong>・
+      <strong>競合激しさ</strong>・<strong>プロモーション優先度</strong> の3要素で決まります。
+    </p>
+    <div class="formula-box">
+      <div class="formula-label">STEP 3 — 訪問頻度（FC）</div>
+visit_freq_FC(p, t) = base_freq(p) × lifecycle_factor(p, t) × competition_factor(p, t)
+    </div>
+    <h3>ライフサイクル係数テーブル</h3>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>ライフサイクルステージ</th>
+          <th>説明</th>
+          <th>係数（lifecycle_factor）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Launch</strong></td><td>発売から12ヶ月以内</td><td><span class="num-badge">1.5</span></td></tr>
+        <tr><td><strong>Early Growth</strong></td><td>発売13〜36ヶ月</td><td><span class="num-badge">1.2</span></td></tr>
+        <tr><td><strong>Mature</strong></td><td>安定期</td><td><span class="num-badge">1.0</span></td></tr>
+        <tr><td><strong>Late Growth</strong></td><td>成熟後期・微減期</td><td><span class="num-badge">0.85</span></td></tr>
+        <tr><td><strong>Decline</strong></td><td>特許切れ・後発品参入後</td><td><span class="num-badge">0.6</span></td></tr>
+      </tbody>
+    </table>
+    <div class="info-box green">
+      <span class="info-icon">✅</span>
+      <span>
+        SC医師への訪問頻度は固定の係数 <span class="num-badge">0.1</span> を乗じた値を使用します（FTE計算内で処理）。
+      </span>
+    </div>
+  </div>
+</div><!-- /step3 -->
+
+<!-- ── STEP 4 ─────────────────────────────────────────────── -->
+<div class="section-card" id="step4">
+  <div class="section-header">
+    <span class="step-badge">4</span>
+    <div>
+      <div class="section-title">MR FTE 算出</div>
+      <div class="section-subtitle">コール数とMRキャパシティから品目×月別FTEを計算</div>
+    </div>
+  </div>
+  <div class="section-body">
+    <p>
+      FC医師数・SC医師数・訪問頻度から <strong>月間総コール数</strong> を求め、
+      MR1名あたりのキャパシティで割ることで品目別のFTEを算出します。
+      デジタルチャネルの比率は <strong>FTE計算には含めません</strong>（独立スコアとして別途算出）。
+    </p>
+    <div class="formula-box">
+      <div class="formula-label">STEP 4 — MR FTE 算出式（コア）</div>
+FTE(p, t) = (FC_drs(p,t) × visit_freq_FC(p,t) + SC_drs(p,t) × <span class="highlight">0.1</span>)
+            ÷ (20日/月 × コール/日)
+
+<span class="highlight">CS エリア:</span>  コール/日 = <span class="highlight">2.5</span>  →  月間キャパ = <span class="highlight">50</span> コール/FTE
+<span class="highlight">PS エリア:</span>  コール/日 = <span class="highlight">1.5</span>  →  月間キャパ = <span class="highlight">30</span> コール/FTE
+    </div>
+    <div class="two-col">
+      <div class="mini-card">
+        <h4>CS — コールキャパシティ</h4>
+        <p>稼働日数： <span class="num-badge">20日/月</span></p>
+        <p>コール/日： <span class="num-badge">2.5</span></p>
+        <p>月間キャパ： <span class="num-badge">50コール/FTE</span></p>
+      </div>
+      <div class="mini-card">
+        <h4>PS — コールキャパシティ</h4>
+        <p>稼働日数： <span class="num-badge">20日/月</span></p>
+        <p>コール/日： <span class="num-badge">1.5</span></p>
+        <p>月間キャパ： <span class="num-badge">30コール/FTE</span></p>
+      </div>
+    </div>
+    <div class="info-box amber">
+      <span class="info-icon">⚠️</span>
+      <span>
+        SC医師へのコール数は <code>SC_drs × 0.1</code> として計上します（SC医師は低頻度訪問の想定）。
+        このSC係数 <strong>0.1</strong> はシステム固定値です。
+      </span>
+    </div>
+  </div>
+</div><!-- /step4 -->
+
+<!-- ── STEP 5 ─────────────────────────────────────────────── -->
+<div class="section-card" id="step5">
+  <div class="section-header">
+    <span class="step-badge">5</span>
+    <div>
+      <div class="section-title">HC 正規化・離散化</div>
+      <div class="section-subtitle">エリア合計FTEをヘッドカウント目標値に正規化</div>
+    </div>
+  </div>
+  <div class="section-body">
+    <p>
+      STEP4で算出した品目別FTEの合計は、そのままではHC目標（CS:380名、PS:45名）と
+      一致しません。比例スケーリングによって正規化し、整数化（離散化）します。
+    </p>
+    <h3>正規化式</h3>
+    <div class="formula-box">
+      <div class="formula-label">STEP 5 — HC正規化</div>
+adjusted_FTE_i = base_FTE_i × (HC_target ÷ Σ<sub>i</sub> base_FTE_i)
+
+<span class="highlight">CS:</span>  HC_target = <span class="highlight">380</span>名
+<span class="highlight">PS:</span>  HC_target = <span class="highlight">45</span>名
+    </div>
+    <h3>H1 / H2 ステップ処理</h3>
+    <div class="info-box blue">
+      <span class="info-icon">ℹ️</span>
+      <span>
+        正規化は <strong>H1（4〜9月）</strong> と <strong>H2（10〜3月）</strong> の半期単位で実施します。
+        半期ごとに合計HCが目標値に一致するよう調整することで、中途採用・退職の影響を吸収します。
+      </span>
+    </div>
+    <div class="info-box amber">
+      <span class="info-icon">⚠️</span>
+      <span>
+        離散化（整数化）には <strong>最大剰余法（Largest Remainder Method）</strong> を使用します。
+        丸め誤差の合計が目標HCと完全に一致することを保証します。
+      </span>
+    </div>
+  </div>
+</div><!-- /step5 -->
+
+<!-- ── STEP 6 ─────────────────────────────────────────────── -->
+<div class="section-card" id="step6">
+  <div class="section-header">
+    <span class="step-badge">6</span>
+    <div>
+      <div class="section-title">新発売品 FTE 配分</div>
+      <div class="section-subtitle">限界ROI最小化によるドナー品目選定と新製品へのFTE移転</div>
+    </div>
+  </div>
+  <div class="section-body">
+    <p>
+      新発売品（is_new=True）へ必要なFTEを確保するため、
+      既存品から <strong>限界ROIが最も低いもの</strong> を優先的にドナーとしてFTEを削減します。
+      FY2026年4月時点のFTEを削減下限の基準（<code>fy2026_apr_fte</code>）として保護します。
+    </p>
+    <h3>限界ROI式（MMM hill関数ベース）</h3>
+    <div class="formula-box">
+      <div class="formula-label">STEP 6 — 限界ROI（ドナー選定基準）</div>
+marginal_ROI(p, x) = β_p × slope_p × (EC_p^slope_p × x^(slope_p−1))
+                              ÷ (EC_p^slope_p + x^slope_p)²
+
+<span class="comment"># パラメータ定義</span>
+β_p     : 製品pのMMMスケール係数（最大効果量）
+slope_p : Hill関数の傾き（急峻さ）
+EC_p    : 半最大効果濃度（x軸: FTE換算）
+x       : 現在のFTE投入量
+    </div>
+    <h3>fy2026_apr_fte による最低保護</h3>
+    <div class="formula-box-compact">
+min_FTE(p) = fy2026_apr_fte(p) × 0.5
+<span style="color:#94a3b8;"># 各品目は FY2026年4月FTEの50%以上を保護（最大削減率 50%）</span>
+    </div>
+    <h3>ドナー選定アルゴリズム</h3>
+    <ol style="margin-left:20px; line-height:2.0;">
+      <li>全既存品の現FTEにおける <strong>限界ROI</strong> を計算</li>
+      <li>限界ROI昇順にソート（ROIが低い＝削減しても損失が少ない）</li>
+      <li>必要FTE充足まで、削減上限（<code>min_FTE</code>）を超えない範囲でドナーからFTEを取得</li>
+      <li>取得したFTEを新発売品の <code>launch_fte_requirement</code> に充当</li>
+    </ol>
+    <div class="info-box green">
+      <span class="info-icon">✅</span>
+      <span>
+        <code>fy2026_apr_fte</code> は「FY2026年4月の正規化済みFTE」をキャッシュした値であり、
+        STEP5完了後に確定します。以降の全年度で削減下限の基準として参照されます。
+      </span>
+    </div>
+  </div>
+</div><!-- /step6 -->
+
+<!-- ── DIGITAL ──────────────────────────────────────────────── -->
+<div class="section-card" id="digital">
+  <div class="section-header">
+    <span class="step-badge digital">D</span>
+    <div>
+      <div class="section-title">デジタル有効性スコア</div>
+      <div class="section-subtitle">MR FTEとは独立したデジタルチャネルの有効性推定</div>
+    </div>
+  </div>
+  <div class="section-body">
+    <p>
+      デジタルチャネル（Web面談・eDetail・メール等）の有効性を
+      <strong>0.0〜1.0</strong> のスコアで表現します。
+      このスコアは <strong>MR FTE算出には影響しません</strong>（完全独立の分析）。
+    </p>
+    <h3>スコア算出式</h3>
+    <div class="formula-box">
+      <div class="formula-label">デジタル有効性スコア — 算出式</div>
+<span class="highlight">Component A</span> (チャネルシェア、ウェイト 50%):
+  comp_A = dig_hill(x_d) ÷ (mr_hill(x_m) + dig_hill(x_d))
+
+<span class="highlight">Component B</span> (SOC デジタル率、ウェイト 50%):
+  comp_B = digital_soc_rate
+
+<span class="highlight">ベーススコア:</span>
+  base = 0.5 × comp_A + 0.5 × comp_B
+
+<span class="highlight">最終スコア（ライフサイクル調整後）:</span>
+  score = clip(base + lifecycle_adj,  0.0,  1.0)
+    </div>
+    <h3>3コンポーネント分解</h3>
+    <div class="two-col">
+      <div class="mini-card">
+        <h4>① チャネルシェア (50%)</h4>
+        <p>デジタルHillとMR Hillの比率で、デジタルが占めるコール効果シェアを推定</p>
+        <p style="margin-top:8px; font-size:12px; color:var(--text-muted);">
+          <code>dig_hill</code>、<code>mr_hill</code> はそれぞれMMMから推定されたHill関数
+        </p>
+      </div>
+      <div class="mini-card">
+        <h4>② デジタルSOC率 (50%)</h4>
+        <p>業界全体の Share of Channel（デジタル接触比率）を外部データから取得</p>
+        <p style="margin-top:8px; font-size:12px; color:var(--text-muted);">
+          年次更新値。製品・エリアによって異なる場合あり
+        </p>
+      </div>
+    </div>
+    <h3>ライフサイクル調整（lifecycle_adj）</h3>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>ライフサイクルステージ</th>
+          <th>lifecycle_adj</th>
+          <th>理由</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Launch</td><td><span class="num-badge">−0.10</span></td><td>発売直後はMR対面が重要</td></tr>
+        <tr><td>Early Growth</td><td><span class="num-badge">−0.05</span></td><td>関係構築フェーズ</td></tr>
+        <tr><td>Mature</td><td><span class="num-badge">0.00</span></td><td>調整なし（ベースライン）</td></tr>
+        <tr><td>Late Growth</td><td><span class="num-badge">+0.05</span></td><td>デジタルで効率化可能</td></tr>
+        <tr><td>Decline</td><td><span class="num-badge">+0.10</span></td><td>MRより低コストなデジタルを優先</td></tr>
+      </tbody>
+    </table>
+    <h3>スコアレベル解釈</h3>
+    <table class="data-table">
+      <thead>
+        <tr><th>スコア範囲</th><th>レベル</th><th>推奨アクション</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>0.0 – 0.3</td><td>低</td><td>MR対面を維持、デジタルは補助的</td></tr>
+        <tr><td>0.3 – 0.6</td><td>中</td><td>MRとデジタルのハイブリッド運用</td></tr>
+        <tr><td>0.6 – 1.0</td><td>高</td><td>デジタル主導、MTR削減を検討</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div><!-- /digital -->
+
+<!-- ── DATA FILES ─────────────────────────────────────────── -->
+<div class="section-card" id="data-files">
+  <div class="section-header">
+    <span class="step-badge" style="background:linear-gradient(135deg,#374151,#1f2937);">D</span>
+    <div>
+      <div class="section-title">データファイル一覧</div>
+      <div class="section-subtitle">システムが参照する入力ファイルと出力ファイル</div>
+    </div>
+  </div>
+  <div class="section-body">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>ファイル名</th>
+          <th>種別</th>
+          <th>内容・用途</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>1</td><td><code>products.csv</code></td><td><span class="tag tag-existing">入力</span></td><td>品目マスタ（product_id, area, is_new, launch_date等）</td></tr>
+        <tr><td>2</td><td><code>mindscape.csv</code></td><td><span class="tag tag-existing">入力</span></td><td>品目×セグメント×期の医師数・ウェイト</td></tr>
+        <tr><td>3</td><td><code>mmm_params.csv</code></td><td><span class="tag tag-existing">入力</span></td><td>MMMパラメータ（β, slope, EC）品目別</td></tr>
+        <tr><td>4</td><td><code>digital_soc.csv</code></td><td><span class="tag tag-existing">入力</span></td><td>デジタルSOC率の年次データ</td></tr>
+        <tr><td>5</td><td><code>fc_rate.csv</code></td><td><span class="tag tag-existing">入力</span></td><td>品目別FC率（月次）</td></tr>
+        <tr><td>6</td><td><code>competition.csv</code></td><td><span class="tag tag-existing">入力</span></td><td>競合環境係数（品目×月）</td></tr>
+        <tr><td>7</td><td><code>hc_targets.csv</code></td><td><span class="tag tag-existing">入力</span></td><td>CS/PSエリア別HCターゲット値（年度別）</td></tr>
+        <tr><td>8</td><td><code>launch_requirements.csv</code></td><td><span class="tag tag-existing">入力</span></td><td>新発売品の発売月・必要FTE要件</td></tr>
+        <tr><td>9</td><td><code>fte_output.csv</code></td><td><span class="tag tag-new">出力</span></td><td>品目×月別FTE（正規化後）</td></tr>
+        <tr><td>10</td><td><code>fte_summary.csv</code></td><td><span class="tag tag-new">出力</span></td><td>エリア×年度集計サマリー</td></tr>
+        <tr><td>11</td><td><code>digital_score.csv</code></td><td><span class="tag tag-new">出力</span></td><td>品目×月別デジタル有効性スコア</td></tr>
+        <tr><td>12</td><td><code>fte_logic_document.html</code></td><td><span class="tag tag-new">出力</span></td><td>本ロジックドキュメント（HTML）</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div><!-- /data-files -->
+
+<div class="doc-footer">
+  Generated by MR FTE Simulation System &nbsp;|&nbsp; 2026-03-31 14:35:47
+</div>
+
+</div><!-- /content-wrap -->
 </main>
 
+<script>
+// Smooth active state on sidebar links
+(function() {
+  var links = document.querySelectorAll('nav#sidebar a');
+  var sections = [];
+  links.forEach(function(link) {
+    var href = link.getAttribute('href');
+    if (href && href.startsWith('#')) {
+      var el = document.getElementById(href.slice(1));
+      if (el) sections.push({ el: el, link: link });
+    }
+  });
+  function onScroll() {
+    var scrollY = window.pageYOffset || document.documentElement.scrollTop;
+    var main = document.querySelector('main');
+    if (main) scrollY = main.scrollTop;
+    var current = null;
+    sections.forEach(function(s) {
+      if (s.el.offsetTop - 80 <= scrollY) current = s;
+    });
+    links.forEach(function(l) { l.classList.remove('active'); });
+    if (current) current.link.classList.add('active');
+  }
+  var main = document.querySelector('main');
+  if (main) main.addEventListener('scroll', onScroll, { passive: true });
+  else window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  // Smooth scroll
+  links.forEach(function(link) {
+    link.addEventListener('click', function(e) {
+      var href = link.getAttribute('href');
+      if (href && href.startsWith('#')) {
+        e.preventDefault();
+        var target = document.getElementById(href.slice(1));
+        if (target) {
+          var main = document.querySelector('main');
+          if (main) {
+            main.scrollTo({ top: target.offsetTop - 16, behavior: 'smooth' });
+          } else {
+            target.scrollIntoView({ behavior: 'smooth' });
+          }
+        }
+      }
+    });
+  });
+})();
+</script>
 </body>
 </html>
