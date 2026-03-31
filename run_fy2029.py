@@ -721,6 +721,7 @@ def main():
         digital_act_df=data["digital_act"],
         soc_rates=soc_rates,
         digital_score_df=digital_score_df,
+        decay_params_df=data["decay_params_df"],
         frequency_mode="lifecycle_adjusted",
         filename="fy2029_fte_report.html",
     )

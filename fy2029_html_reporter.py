@@ -1056,7 +1056,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <p style="font-size:13px;color:#555;line-height:1.7;margin-bottom:12px;">
       MR FTE（380名CS / 45名PS）はMR活動のみから直接算出しており、デジタルチャネルはFTE計算に影響しません。<br>
       デジタル有効性スコアはチャネル戦略上の示唆として独立して算出します。<br>
-      <strong>①MMM デジタル応答比（W=50%）</strong>：Hill関数の総効果量 dig_val/(mr_val+dig_val)。活動数補正済みのデジタルチャネル効果量。<br>
+      <strong>①MMM デジタル応答比（W=50%）</strong>：Hill関数の総効果量 dig_val/(mr_val+dig_val)。活動数補正済みのデジタルチャネル効果量。MRチャネル: 面談/面談_アポ/説明会、デジタルチャネル: Web講演会/Webinar/e-contents/メール（slope_m=1.0固定: ミカエリス-メンテン型）。<br>
       <strong>②SOC デジタル感受性（W=50%）</strong>：digital_soc_rate（下表）を直接使用。医師が視聴1回でどれだけ想起するかの確率（0〜1）。<br>
       <strong>ライフサイクル補正</strong>：LOE後 −25pt / LOE1年未満 −20pt / LOE1〜3年 −10pt、発売1年未満 −5pt、成長期（1〜3年） +8pt、成熟期 +5pt。<br>
       <strong>スコア解釈</strong>：高（55%以上）= m3等デジタル積極活用余地あり / 中（35〜55%）= 選択的活用 / 低（35%未満）= MR中心維持
@@ -1119,6 +1119,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="chart-full">{chart_digital_activity}</div>
     <div class="chart-full">{chart_digital_trend}</div>
     {table_digital_summary}
+  </section>
+
+  <!-- Section MMM: レスポンスカーブ & パラメータ調整 -->
+  <section>
+    <h2>MMM レスポンスカーブ & ライフサイクル調整</h2>
+    {mmm_section}
   </section>
 
   <!-- Section 6: 詳細テーブル（全品目×全月）-->
@@ -2565,6 +2571,7 @@ class FY2029HTMLReporter:
         digital_act_df: Optional[pd.DataFrame] = None,
         soc_rates: Optional[Dict[str, Dict[str, float]]] = None,
         digital_score_df: Optional[pd.DataFrame] = None,
+        decay_params_df: Optional[pd.DataFrame] = None,
     ) -> Path:
         """
         HTMLレポートを生成してファイルに保存する。
@@ -2716,6 +2723,12 @@ class FY2029HTMLReporter:
         else:
             soc_table_html = "<p style='color:#999;'>SOCデータなし</p>"
 
+        # ---- MMM レスポンスカーブセクション ----
+        if decay_params_df is not None and not decay_params_df.empty:
+            mmm_html = self.generate_mmm_section(decay_params_df)
+        else:
+            mmm_html = "<p style='color:#999;padding:20px;'>MMMパラメータCSV未設定</p>"
+
         # ---- HTMLレンダリング ----
         _opt_df = optimal_fte_df if optimal_fte_df is not None else pd.DataFrame()
 
@@ -2758,6 +2771,7 @@ class FY2029HTMLReporter:
             chart_digital_activity=_fig_to_html(fig_digital_activity(_digital_df), "chart_digital_activity"),
             chart_digital_trend=_fig_to_html(fig_digital_trend(_digital_df), "chart_digital_trend"),
             table_digital_summary=digital_summary_html,
+            mmm_section=mmm_html,
             table_soc_params=soc_table_html,
             table_detail=_df_to_html(detail_df, title="全品目×全月 詳細FTE"),
             current_cs=CURRENT_MR_COUNT["CS"],
