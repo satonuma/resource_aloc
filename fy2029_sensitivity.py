@@ -57,10 +57,11 @@ class ScaledTargetDoctorCalculator(TargetDoctorCalculator):
         self._base = base_calc
         self.scale = scale
         # 親クラス属性を委譲
-        self.activity_data       = base_calc.activity_data
-        self.product_info        = base_calc.product_info
-        self.base_target_doctors = base_calc.base_target_doctors
+        self.activity_data         = base_calc.activity_data
+        self.product_info          = base_calc.product_info
+        self.base_target_doctors   = base_calc.base_target_doctors
         self.mindscape_segments_df = base_calc.mindscape_segments_df
+        self.doctor_tiers          = base_calc.doctor_tiers
 
     def calculate(self, product_id, months, config=None, ramp_up_curve=None,
                   reference_product_id=None):
@@ -76,6 +77,17 @@ class ScaledTargetDoctorCalculator(TargetDoctorCalculator):
     def get_base_target_doctors(self, product_id):
         base = self._base.get_base_target_doctors(product_id)
         return int(base * self.scale)
+
+    def get_doctor_tier(self, product_id):
+        tier = self._base.get_doctor_tier(product_id)
+        if tier is None:
+            return None
+        return {
+            "r_doctors":    int(round(tier["r_doctors"] * self.scale)),
+            "w_doctors":    int(round(tier["w_doctors"] * self.scale)),
+            "r_visit_freq": tier["r_visit_freq"],
+            "w_visit_freq": tier["w_visit_freq"],
+        }
 
 
 # ============================================================

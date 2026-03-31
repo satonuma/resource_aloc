@@ -212,7 +212,25 @@ def load_data():
 
     # ---- ターゲット医師数（target_doctors.csv: 既存品目の正値） ----
     td_df = pd.read_csv(BASE / "target_doctors.csv")
-    base_target_doctors: Dict[str, int] = dict(zip(td_df["product_id"], td_df["target_doctors"].astype(int)))
+    if "r_doctors" in td_df.columns and "w_doctors" in td_df.columns:
+        # 新形式: R/W ティア別に医師数・訪問頻度を保持
+        base_target_doctors: Dict[str, int] = {
+            row["product_id"]: int(row["r_doctors"]) + int(row["w_doctors"])
+            for _, row in td_df.iterrows()
+        }
+        doctor_tiers: Dict[str, dict] = {
+            row["product_id"]: {
+                "r_doctors":    int(row["r_doctors"]),
+                "w_doctors":    int(row["w_doctors"]),
+                "r_visit_freq": float(row["r_visit_freq"]),
+                "w_visit_freq": float(row["w_visit_freq"]),
+            }
+            for _, row in td_df.iterrows()
+        }
+    else:
+        # 旧形式: 合計のみ（後方互換）
+        base_target_doctors = dict(zip(td_df["product_id"], td_df["target_doctors"].astype(int)))
+        doctor_tiers = {}
 
     # ---- Doctor Mindscapeセグメントデータ（新製品ターゲット医師数算出用） ----
     mindscape_path = BASE / "mindscape_segments.csv"
@@ -260,6 +278,7 @@ def load_data():
         current_activities = current_activities,
         fy2026_apr_fte       = fy2026_apr_fte,
         base_target_doctors  = base_target_doctors,
+        doctor_tiers         = doctor_tiers,
         mindscape_segments_df= mindscape_segments_df,
         sales_forecast     = sales_forecast,
         delivery_data      = delivery_data,
@@ -330,6 +349,7 @@ def main():
         product_info          = data["product_info"],
         mindscape_segments_df = data["mindscape_segments_df"],
         activity_data         = data["activity_data"],   # フォールバック用
+        doctor_tiers          = data["doctor_tiers"],    # R/W ティア
     )
 
     fc_sc_allocator = FCScAllocator(

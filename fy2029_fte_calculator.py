@@ -369,15 +369,17 @@ class TargetDoctorCalculator:
     品目×月ごとのターゲット医師数を算出。
 
     データソース優先順位:
-    1. base_target_doctors（target_doctors.csv 直読み） ← 既存品目の正とする
-    2. mindscape_segments_df（Doctor Mindscape セグメントデータ） ← 新製品で使用
-    3. activity_data の直近12ヶ月集計（フォールバック）
+    1. doctor_tiers（target_doctors.csv の R/W ティアデータ）← R+W の合計を使用
+    2. base_target_doctors（target_doctors.csv 旧形式）← 後方互換
+    3. mindscape_segments_df（Doctor Mindscape セグメントデータ） ← 新製品で使用
+    4. activity_data の直近12ヶ月集計（フォールバック）
 
     引数:
     - base_target_doctors   : {product_id: 医師数}  target_doctors.csv から読込
     - mindscape_segments_df : product_id, pct_from, pct_to, doctor_count
     - activity_data         : フォールバック用（既存品目でbase_target_doctorsにない場合）
     - product_info          : product_id, launch_ym, loe_months, estimated_patients, num_indications
+    - doctor_tiers          : {product_id: {r_doctors, w_doctors, r_visit_freq, w_visit_freq}}
     """
 
     def __init__(
@@ -386,8 +388,10 @@ class TargetDoctorCalculator:
         product_info: pd.DataFrame,
         mindscape_segments_df: Optional[pd.DataFrame] = None,
         activity_data: Optional[pd.DataFrame] = None,
+        doctor_tiers: Optional[Dict[str, dict]] = None,
     ) -> None:
         self.base_target_doctors = base_target_doctors
+        self.doctor_tiers = doctor_tiers or {}
         self.product_info = product_info
         self.mindscape_segments_df = mindscape_segments_df if mindscape_segments_df is not None else pd.DataFrame()
         self.activity_data = activity_data if activity_data is not None else pd.DataFrame()
@@ -396,14 +400,28 @@ class TargetDoctorCalculator:
     # 既存品目用
     # ----------------------------------------------------------
 
+    def get_doctor_tier(self, product_id: str) -> Optional[dict]:
+        """
+        R/W医師ティアデータを返す。なければ None。
+
+        返り値: {"r_doctors": int, "w_doctors": int,
+                 "r_visit_freq": float, "w_visit_freq": float}
+        """
+        return self.doctor_tiers.get(product_id)
+
     def get_base_target_doctors(self, product_id: str) -> int:
         """
-        品目のベースターゲット医師数を返す。
+        品目のベースターゲット医師数（R+W合計）を返す。
 
         優先順位:
-        1. base_target_doctors（target_doctors.csv）
-        2. activity_data の直近12ヶ月ユニーク医師数（フォールバック）
+        1. doctor_tiers の R+W 合計（target_doctors.csv 新形式）
+        2. base_target_doctors（旧形式フォールバック）
+        3. activity_data の直近12ヶ月ユニーク医師数
         """
+        tier = self.doctor_tiers.get(product_id)
+        if tier:
+            return tier["r_doctors"] + tier["w_doctors"]
+
         if product_id in self.base_target_doctors:
             return self.base_target_doctors[product_id]
 
@@ -1230,8 +1248,30 @@ class FY2029FTECalculator:
                 fc_docs, sc_docs = self.fc_sc_allocator.split_fc_sc(
                     pid, total_target, target_this_month
                 )
-                freq = self.freq_estimator.get(pid, month, self.frequency_mode)
-                required_calls = fc_docs * freq + sc_docs * freq * SC_COEFFICIENT
+
+                # ---- R/W 医師ティアによる required_calls 計算 ----
+                tier = self.target_doctor_calc.get_doctor_tier(pid)
+                if tier and total_target > 0:
+                    # R/W比率を維持しつつ ramp-up 等の総数変動に追随
+                    total_base = tier["r_doctors"] + tier["w_doctors"]
+                    ratio = total_target / total_base if total_base > 0 else 1.0
+                    r_docs = int(round(tier["r_doctors"] * ratio))
+                    w_docs = total_target - r_docs
+                    # ライフサイクル調整をベース頻度に乗算
+                    lc_adj = self.freq_estimator._lifecycle_adj(pid, month)
+                    r_freq = tier["r_visit_freq"] * lc_adj
+                    w_freq = tier["w_visit_freq"] * lc_adj
+                    required_calls = r_docs * r_freq + w_docs * w_freq
+                    eff_freq = required_calls / total_target if total_target > 0 else 0.0
+                else:
+                    # ティアデータなし（新製品等）: 従来ロジック
+                    r_docs = fc_docs
+                    w_docs = sc_docs
+                    freq = self.freq_estimator.get(pid, month, self.frequency_mode)
+                    r_freq = w_freq = freq
+                    required_calls = fc_docs * freq + sc_docs * freq * SC_COEFFICIENT
+                    eff_freq = freq
+
                 base_fte = required_calls / monthly_capacity if monthly_capacity > 0 else 0.0
 
                 # 効能追加ブースト（例: VYV 2028-07〜 30%増）
@@ -1247,9 +1287,11 @@ class FY2029FTECalculator:
                     "month":           month,
                     "area":            area,
                     "target_doctors":  total_target,
+                    "r_doctors":       r_docs,
+                    "w_doctors":       w_docs,
                     "fc_doctors":      fc_docs,
                     "sc_doctors":      sc_docs,
-                    "visit_frequency": round(freq, 3),
+                    "visit_frequency": round(eff_freq, 3),
                     "required_calls":  round(required_calls, 1),
                     "base_fte":        base_fte,  # ブースト込み全活動FTE
                 })
