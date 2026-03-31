@@ -2572,6 +2572,9 @@ class FY2029HTMLReporter:
         soc_rates: Optional[Dict[str, Dict[str, float]]] = None,
         digital_score_df: Optional[pd.DataFrame] = None,
         decay_params_df: Optional[pd.DataFrame] = None,
+        loe_schedule: Optional[Dict[str, str]] = None,
+        launch_schedule: Optional[Dict[str, str]] = None,
+        competitor_entry: Optional[Dict[str, str]] = None,
     ) -> Path:
         """
         HTMLレポートを生成してファイルに保存する。
@@ -2725,7 +2728,12 @@ class FY2029HTMLReporter:
 
         # ---- MMM レスポンスカーブセクション ----
         if decay_params_df is not None and not decay_params_df.empty:
-            mmm_html = self.generate_mmm_section(decay_params_df)
+            mmm_html = self.generate_mmm_section(
+                decay_params_df,
+                loe_schedule=loe_schedule,
+                launch_schedule=launch_schedule,
+                competitor_entry=competitor_entry,
+            )
         else:
             mmm_html = "<p style='color:#999;padding:20px;'>MMMパラメータCSV未設定</p>"
 

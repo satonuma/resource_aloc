@@ -708,6 +708,23 @@ def main():
     # ---- 6. HTML出力 ----
     print(f"\n[6/6] HTMLレポート出力 → {OUTPUT_DIR}/")
 
+    # LOE / 新製品発売スケジュールを products.csv から構築
+    _SIM_END = 2036  # シミュレーション終了年
+    loe_schedule: Dict[str, str] = {}
+    launch_schedule_mmm: Dict[str, str] = {}
+    for cfg in product_configs:
+        # LOE が 2099-01 = 実質なし → シミュレーション範囲外なら除外
+        loe_dt_str = next(
+            (row["loe_ym"] for _, row in pd.read_csv(PRODUCTS_CSV).iterrows()
+             if row["product_id"] == cfg.product_id), None
+        )
+        if loe_dt_str and not loe_dt_str.startswith("2099"):
+            loe_yr = int(loe_dt_str[:4])
+            if loe_yr < _SIM_END:
+                loe_schedule[cfg.product_id] = loe_dt_str
+        if cfg.is_new:
+            launch_schedule_mmm[cfg.product_id] = cfg.launch_ym
+
     reporter = FY2029HTMLReporter(output_dir=str(OUTPUT_DIR))
     reporter.generate(
         fte_df=fte_df,
@@ -722,6 +739,8 @@ def main():
         soc_rates=soc_rates,
         digital_score_df=digital_score_df,
         decay_params_df=data["decay_params_df"],
+        loe_schedule=loe_schedule,
+        launch_schedule=launch_schedule_mmm,
         frequency_mode="lifecycle_adjusted",
         filename="fy2029_fte_report.html",
     )
