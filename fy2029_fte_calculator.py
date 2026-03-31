@@ -258,12 +258,14 @@ def calculate_roi_optimal_fte(
                     continue
                 mr_rows = decay_params_df[
                     (decay_params_df["product_id"] == cfg.product_id)
-                    & (decay_params_df["channel"] == "MR")
+                    & (decay_params_df["channel"].isin(MR_CHANNELS))
                 ]
                 if mr_rows.empty:
                     continue
-                p = mr_rows.iloc[0]
-                active.append((cfg.product_id, float(p["beta"]), float(p["ec"]), float(p["slope"])))
+                # 面談チャネルを優先、なければMRチャネル群の最初の行
+                face_rows = mr_rows[mr_rows["channel"] == "面談"]
+                p = face_rows.iloc[0] if not face_rows.empty else mr_rows.iloc[0]
+                active.append((cfg.product_id, float(p["beta_m"]), float(p["ec_m"]), float(p["slope_m"])))
 
             if not active:
                 continue
@@ -346,11 +348,169 @@ class ProductConfig:
 class MMMDecayParams:
     """Meridian出力: 品目×チャネル別減衰曲線パラメータ"""
     product_id: str
-    channel: str    # "MR" | "Digital"
-    alpha: float    # Adstock減衰率
-    beta: float     # 応答曲線スケール係数（売上換算）
-    ec: float       # EC50（半最大効果到達点）
-    slope: float    # Hill係数
+    channel: str         # "面談" | "面談_アポ" | "説明会" | "Web講演会" | "Webinar" | "e-contents" | "メール"
+    alpha: float         # Adstock減衰率
+    beta_m: float        # 応答曲線スケール係数（売上換算天井）
+    ec_m: float          # EC50（半最大効果到達活動量）
+    eta_m: float         # チャネル効率パラメータ
+    mr_time_weight: float  # MR時間換算係数（面談=1.0, e-contents=0.0等）
+    slope_m: float = 1.0   # Hill係数（固定=1.0: ミカエリス-メンテン型）
+
+
+# ============================================================
+# MMMパラメータ ライフサイクル調整
+# ============================================================
+
+# チャネルグループ定義
+MR_CHANNELS = {"面談", "面談_アポ", "説明会"}
+DIGITAL_CHANNELS = {"Web講演会", "Webinar", "e-contents", "メール"}
+
+# ライフサイクルイベント別 調整乗数定義
+# beta_m: 応答天井への乗数
+# ec_m:   EC50への乗数（<1で飽和が早まる = 競合で市場が難しくなる）
+# eta_m:  チャネル効率への乗数
+
+LOE_DECAY_RULES = {
+    # years_since_loe -> (beta_m_mult, ec_m_mult)
+    0: (0.80, 0.90),
+    1: (0.55, 0.75),
+    2: (0.35, 0.60),
+    3: (0.20, 0.50),
+}
+
+LAUNCH_RAMP_RULES = {
+    # years_since_launch -> (beta_m_mult, ec_m_mult)
+    0: (0.40, 1.30),
+    1: (0.60, 1.15),
+    2: (0.80, 1.05),
+    3: (1.00, 1.00),
+}
+
+COMPETITOR_ENTRY_EC_MULT = 0.85  # 競合参入でec_mが15%低下
+
+DIGITAL_ETA_TREND_PER_YEAR = 0.02  # デジタルチャネル eta_m が年2%向上
+
+
+class MMMParameterAdjuster:
+    """
+    MMMの事後分布パラメータをライフサイクルイベントに基づいて将来調整する。
+
+    調整対象:
+      - beta_m: LOE後は低下、新製品ランプアップで上昇
+      - ec_m:   競合参入で低下（飽和が早まる）
+      - eta_m:  デジタルチャネルは年率2%向上トレンド
+
+    変更しないもの:
+      - alpha:   チャネル固有の効果持続性（製品ライフサイクルと独立）
+      - gamma_c: 施設固有特性（安定）
+      - sigma:   観測ノイズ
+      - slope_m: 1.0固定
+    """
+
+    def __init__(
+        self,
+        decay_params_df: pd.DataFrame,
+        loe_schedule: Optional[Dict[str, str]] = None,
+        launch_schedule: Optional[Dict[str, str]] = None,
+        competitor_entry: Optional[Dict[str, str]] = None,
+        base_year: int = 2026,
+    ) -> None:
+        """
+        Args:
+            decay_params_df: mmm_decay_params.csv の DataFrame
+            loe_schedule:    {product_id: "YYYY-MM"} LOE発生年月
+            launch_schedule: {product_id: "YYYY-MM"} 発売年月
+            competitor_entry:{product_id: "YYYY-MM"} 主要競合参入年月
+            base_year:       パラメータ推定の基準年度
+        """
+        self.base_df = decay_params_df.copy()
+        self.loe_schedule = loe_schedule or {}
+        self.launch_schedule = launch_schedule or {}
+        self.competitor_entry = competitor_entry or {}
+        self.base_year = base_year
+
+    def _years_since(self, event_ym: str, target_fy: int) -> Optional[float]:
+        """target_FY開始時点でのイベント経過年数（負なら未発生）"""
+        try:
+            ey, em = int(event_ym[:4]), int(event_ym[5:7])
+            # FY開始は4月
+            fy_start_months = target_fy * 12 + 4
+            event_months = ey * 12 + em
+            return (fy_start_months - event_months) / 12.0
+        except Exception:
+            return None
+
+    def get_adjusted_params(self, product_id: str, fiscal_year: int) -> pd.DataFrame:
+        """
+        指定品目・年度の調整済みMMMパラメータを返す。
+
+        Returns:
+            decay_params_dfと同構造のDataFrame（当該品目の行のみ）
+        """
+        rows = self.base_df[self.base_df["product_id"] == product_id].copy()
+        if rows.empty:
+            return rows
+
+        beta_mult = 1.0
+        ec_mult   = 1.0
+
+        # --- LOE調整 ---
+        if product_id in self.loe_schedule:
+            ysl = self._years_since(self.loe_schedule[product_id], fiscal_year)
+            if ysl is not None and ysl >= 0:
+                key = min(int(ysl), max(LOE_DECAY_RULES.keys()))
+                b_m, e_m = LOE_DECAY_RULES[key]
+                beta_mult *= b_m
+                ec_mult   *= e_m
+
+        # --- 新製品ランプアップ調整 ---
+        if product_id in self.launch_schedule:
+            ysl = self._years_since(self.launch_schedule[product_id], fiscal_year)
+            if ysl is not None and 0 <= ysl < 4:
+                key = min(int(ysl), max(LAUNCH_RAMP_RULES.keys()))
+                b_m, e_m = LAUNCH_RAMP_RULES[key]
+                beta_mult *= b_m
+                ec_mult   *= e_m
+
+        # --- 競合参入調整 ---
+        if product_id in self.competitor_entry:
+            ysl = self._years_since(self.competitor_entry[product_id], fiscal_year)
+            if ysl is not None and ysl >= 0:
+                ec_mult *= COMPETITOR_ENTRY_EC_MULT
+
+        # beta_m / ec_m 適用
+        rows["beta_m"] = rows["beta_m"] * beta_mult
+        rows["ec_m"]   = rows["ec_m"]   * ec_mult
+
+        # --- デジタルチャネル eta_m トレンド ---
+        years_from_base = fiscal_year - self.base_year
+        digital_mask = rows["channel"].isin(DIGITAL_CHANNELS)
+        rows.loc[digital_mask, "eta_m"] = (
+            rows.loc[digital_mask, "eta_m"] * (1 + DIGITAL_ETA_TREND_PER_YEAR) ** years_from_base
+        )
+
+        return rows
+
+    def response_curve_points(
+        self, product_id: str, fiscal_year: int, channel: str, n_points: int = 50
+    ) -> List[Tuple[float, float]]:
+        """
+        指定チャネルの調整済みレスポンスカーブ点列を返す（x=活動量, y=売上効果）。
+        slope_m=1固定のミカエリス-メンテン型。
+        """
+        params = self.get_adjusted_params(product_id, fiscal_year)
+        row = params[params["channel"] == channel]
+        if row.empty:
+            return []
+        beta = float(row["beta_m"].iloc[0])
+        ec   = float(row["ec_m"].iloc[0])
+        x_max = ec * 5
+        points = []
+        for i in range(n_points + 1):
+            x = x_max * i / n_points
+            y = beta * x / (ec + x)  # slope=1固定
+            points.append((round(x, 2), round(y, 2)))
+        return points
 
 
 def _months_between(ym_start: str, ym_end: str) -> int:
@@ -933,17 +1093,21 @@ class DigitalEffectivenessScorer:
         dig_soc_rate = float(rates.get("digital", self.DEFAULT_DIGITAL_SOC_RATE))
 
         # ---- 1. MMM: デジタルの応答比率 ----
-        mr_row  = self.params[
-            (self.params["product_id"] == product_id) & (self.params["channel"] == "MR")
+        _mr_rows  = self.params[
+            (self.params["product_id"] == product_id) & (self.params["channel"].isin(MR_CHANNELS))
         ]
-        dig_row = self.params[
-            (self.params["product_id"] == product_id) & (self.params["channel"] == "Digital")
+        _dig_rows = self.params[
+            (self.params["product_id"] == product_id) & (self.params["channel"].isin(DIGITAL_CHANNELS))
         ]
+        # 面談チャネルを優先
+        _face = _mr_rows[_mr_rows["channel"] == "面談"]
+        mr_row  = _face if not _face.empty else _mr_rows
+        dig_row = _dig_rows
         if not mr_row.empty and not dig_row.empty:
             mr  = mr_row.iloc[0]
             dig = dig_row.iloc[0]
-            mr_val  = self._hill_value(mr_act,  float(mr["beta"]),  float(mr["ec"]),  float(mr["slope"]))
-            dig_val = self._hill_value(dig_act, float(dig["beta"]), float(dig["ec"]), float(dig["slope"]))
+            mr_val  = self._hill_value(mr_act,  float(mr["beta_m"]),  float(mr["ec_m"]),  float(mr["slope_m"]))
+            dig_val = self._hill_value(dig_act, float(dig["beta_m"]), float(dig["ec_m"]), float(dig["slope_m"]))
             total_mmm = mr_val + dig_val
             mmm_dig_frac = (dig_val / total_mmm) if total_mmm > 0 else self.DEFAULT_DIGITAL_FRACTION
         else:
@@ -1003,17 +1167,19 @@ class NewProductFTEAllocator:
 
     def marginal_roi(self, product_id: str) -> float:
         """品目の現在活動量における限界ROI"""
-        mr_row = self.params[
+        _mr_rows = self.params[
             (self.params["product_id"] == product_id)
-            & (self.params["channel"] == "MR")
+            & (self.params["channel"].isin(MR_CHANNELS))
         ]
+        _face = _mr_rows[_mr_rows["channel"] == "面談"]
+        mr_row = _face if not _face.empty else _mr_rows
         if mr_row.empty:
             return 0.0
         p = mr_row.iloc[0]
         x = self.current_mr_activity.get(product_id, 0.0)
         if x <= 0:
             return float("inf")
-        return DigitalEffectivenessScorer._hill_marginal(x, p["ec"], p["slope"]) * p["beta"]
+        return DigitalEffectivenessScorer._hill_marginal(x, p["ec_m"], p["slope_m"]) * p["beta_m"]
 
     def allocate(
         self,

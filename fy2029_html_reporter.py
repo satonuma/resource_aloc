@@ -2351,6 +2351,205 @@ class FY2029HTMLReporter:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
+    # ----------------------------------------------------------
+    # MMM レスポンスカーブ可視化
+    # ----------------------------------------------------------
+
+    def fig_mmm_response_curves(
+        self,
+        adjuster,  # MMMParameterAdjuster instance
+        product_id: str,
+        channels: Optional[List[str]] = None,
+        fiscal_years: Optional[List[int]] = None,
+    ) -> go.Figure:
+        """
+        品目×チャネルのMMMレスポンスカーブ（FY別）を描画する。
+
+        Parameters
+        ----------
+        adjuster      : MMMParameterAdjuster インスタンス
+        product_id    : 対象品目ID
+        channels      : 対象チャネルリスト（デフォルト: 面談/面談_アポ/説明会）
+        fiscal_years  : 対象年度リスト（デフォルト: [2026, 2029, 2032, 2035]）
+
+        Returns
+        -------
+        go.Figure: Plotly Figure
+        """
+        if channels is None:
+            channels = ["面談", "面談_アポ", "説明会"]
+        if fiscal_years is None:
+            fiscal_years = [2026, 2029, 2032, 2035]
+
+        fy_colors = {2026: "#1f77b4", 2029: "#ff7f0e", 2032: "#2ca02c", 2035: "#d62728"}
+        fy_dash   = {2026: "solid", 2029: "dash", 2032: "dot", 2035: "dashdot"}
+
+        n_ch = len(channels)
+        fig = make_subplots(
+            rows=1,
+            cols=n_ch,
+            subplot_titles=channels,
+            shared_yaxes=False,
+        )
+
+        for col_idx, ch in enumerate(channels, start=1):
+            for fy in fiscal_years:
+                pts = adjuster.response_curve_points(product_id, fy, ch)
+                if not pts:
+                    continue
+                xs = [p[0] for p in pts]
+                ys = [p[1] for p in pts]
+                show_legend = (col_idx == 1)
+                fig.add_trace(
+                    go.Scatter(
+                        name=f"FY{fy}",
+                        x=xs,
+                        y=ys,
+                        mode="lines",
+                        line=dict(
+                            color=fy_colors.get(fy, "#aaa"),
+                            dash=fy_dash.get(fy, "solid"),
+                            width=2,
+                        ),
+                        legendgroup=f"FY{fy}",
+                        showlegend=show_legend,
+                    ),
+                    row=1,
+                    col=col_idx,
+                )
+
+        fig.update_layout(
+            title=f"{product_id} — チャネル別 MMMレスポンスカーブ（FY別ライフサイクル調整後）",
+            height=380,
+            template="plotly_white",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        fig.update_xaxes(title_text="活動量")
+        fig.update_yaxes(title_text="売上効果")
+        return fig
+
+    def generate_mmm_section(
+        self,
+        decay_params_df: "pd.DataFrame",
+        loe_schedule: Optional[Dict[str, str]] = None,
+        launch_schedule: Optional[Dict[str, str]] = None,
+        competitor_entry: Optional[Dict[str, str]] = None,
+        products: Optional[List[str]] = None,
+        fiscal_years: Optional[List[int]] = None,
+    ) -> str:
+        """
+        MMMパラメータ調整セクションのHTML文字列を生成する。
+
+        a) 品目別 MR チャネルレスポンスカーブ（FY2026/2029/2032/2035）
+        b) パラメータ調整テーブル（品目×年度×チャネル）
+        c) Databricks連携ノート
+
+        Returns
+        -------
+        str: HTML文字列（<section>タグ含む）
+        """
+        from fy2029_fte_calculator import MMMParameterAdjuster
+
+        if fiscal_years is None:
+            fiscal_years = [2026, 2029, 2032, 2035]
+        if products is None:
+            products = list(decay_params_df["product_id"].unique()) if not decay_params_df.empty else []
+
+        adjuster = MMMParameterAdjuster(
+            decay_params_df=decay_params_df,
+            loe_schedule=loe_schedule or {},
+            launch_schedule=launch_schedule or {},
+            competitor_entry=competitor_entry or {},
+            base_year=2026,
+        )
+
+        mr_channels = ["面談", "面談_アポ", "説明会"]
+
+        # ---- a) レスポンスカーブ ----
+        curve_charts_html = ""
+        for pid in products[:10]:  # 最大10品目表示
+            try:
+                fig = self.fig_mmm_response_curves(adjuster, pid, mr_channels, fiscal_years)
+                curve_charts_html += f'<div style="margin-bottom:20px;">{_fig_to_html(fig)}</div>\n'
+            except Exception as exc:
+                curve_charts_html += f'<p style="color:#999;">{pid}: グラフ生成エラー ({exc})</p>\n'
+
+        # ---- b) パラメータ調整テーブル ----
+        adj_rows = []
+        for pid in products:
+            for ch in mr_channels:
+                base_row = decay_params_df[
+                    (decay_params_df["product_id"] == pid) & (decay_params_df["channel"] == ch)
+                ]
+                if base_row.empty:
+                    continue
+                base_beta = float(base_row["beta_m"].iloc[0])
+                base_ec   = float(base_row["ec_m"].iloc[0])
+                row_data: Dict[str, object] = {
+                    "品目": pid,
+                    "チャネル": ch,
+                    "base beta_m": round(base_beta, 1),
+                    "base ec_m": round(base_ec, 1),
+                }
+                for fy in fiscal_years:
+                    adj = adjuster.get_adjusted_params(pid, fy)
+                    ch_row = adj[adj["channel"] == ch]
+                    if not ch_row.empty:
+                        row_data[f"beta_m FY{fy}"] = round(float(ch_row["beta_m"].iloc[0]), 1)
+                        row_data[f"ec_m FY{fy}"]   = round(float(ch_row["ec_m"].iloc[0]),   1)
+                    else:
+                        row_data[f"beta_m FY{fy}"] = "-"
+                        row_data[f"ec_m FY{fy}"]   = "-"
+
+                # 調整理由
+                reasons = []
+                if loe_schedule and pid in loe_schedule:
+                    reasons.append(f"LOE({loe_schedule[pid]})")
+                if launch_schedule and pid in launch_schedule:
+                    reasons.append(f"新製品ランプアップ({launch_schedule[pid]})")
+                if competitor_entry and pid in competitor_entry:
+                    reasons.append(f"競合参入({competitor_entry[pid]})")
+                row_data["調整理由"] = " / ".join(reasons) if reasons else "—"
+                adj_rows.append(row_data)
+
+        if adj_rows:
+            adj_df = pd.DataFrame(adj_rows)
+            param_table_html = _df_to_html(adj_df, title="MMMパラメータ ライフサイクル調整テーブル（MRチャネル）")
+        else:
+            param_table_html = "<p style='color:#999;'>パラメータデータなし</p>"
+
+        # ---- c) Databricks連携ノート ----
+        databricks_note = """
+<div style="background:#eff6ff;border-left:4px solid #3b82f6;padding:16px 20px;border-radius:0 8px 8px 0;margin-top:24px;">
+  <div style="font-weight:700;font-size:14px;color:#1d4ed8;margin-bottom:8px;">Databricks 連携設計メモ</div>
+  <ul style="font-size:13px;color:#374151;line-height:1.8;margin:0;padding-left:18px;">
+    <li><strong>現在</strong>: mmm_decay_params.csv のダミーパラメータを使用</li>
+    <li><strong>Phase 1</strong>: Databricks Meridian ジョブの事後分布 MAP 推定値を
+      <code>mmm_params_export.csv</code> に出力 → 本システムが読み込み</li>
+    <li><strong>Phase 2</strong>: Databricks REST API 経由でライブ取得（リアルタイム更新対応）</li>
+    <li><strong>拡張効果</strong>: 品目×施設クラスタ (<code>gamma_gc</code>) パラメータを取り込むことで、
+      施設レベルのFTE最適配分が可能になる（現行は品目レベル）</li>
+  </ul>
+  <div style="font-size:12px;color:#6b7280;margin-top:10px;">
+    出力スキーマ例: product_id, facility_cluster, channel, alpha, beta_m, ec_m, eta_m, mr_time_weight, slope_m
+  </div>
+</div>
+"""
+
+        html = f"""
+<section>
+  <h2>⑪ MMMパラメータ ライフサイクル調整</h2>
+  <p style="font-size:13px;color:#666;margin-bottom:12px;">
+    MMMパラメータ（beta_m / ec_m / eta_m）をLOE・新製品発売・競合参入・デジタルトレンドに基づいて将来年度へ調整したレスポンスカーブを示す。<br>
+    各曲線の傾きが品目への追加投資の限界効率を表し、傾きが均等になる点が最適FTE配分となる。
+  </p>
+  {curve_charts_html}
+  {param_table_html}
+  {databricks_note}
+</section>
+"""
+        return html
+
     def generate(
         self,
         fte_df: pd.DataFrame,
