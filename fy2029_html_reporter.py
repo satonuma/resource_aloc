@@ -985,8 +985,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       </div>
       <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:14px 16px;">
         <div style="font-size:11px;font-weight:700;letter-spacing:1px;opacity:0.7;margin-bottom:6px;">STEP 2</div>
-        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">FC / SC 分割</div>
-        <div style="font-size:12px;opacity:0.82;">医師被り率で主訪問（FC）と同行訪問（SC）に分割。SCコスト = FC × 0.1</div>
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">FC / SC コスト重み</div>
+        <div style="font-size:12px;opacity:0.82;">品目ごとに fc_weight を設定。fc_weight = fc_ratio + (1−fc_ratio)×0.1</div>
       </div>
       <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:14px 16px;">
         <div style="font-size:11px;font-weight:700;letter-spacing:1px;opacity:0.7;margin-bottom:6px;">STEP 3</div>
@@ -1824,7 +1824,7 @@ def generate_logic_document(output_dir: str = "output") -> Path:
 
     <h3 style="margin-top:28px;">主要式まとめ</h3>
     <div class="summary-formula-box">
-<span class="sfb-section">STEP 4 — MR FTE算出</span>FTE = (FC医師数 × FC訪問頻度 + SC医師数 × 0.1) ÷ (20日/月 × コール/日)
+<span class="sfb-section">STEP 4 — MR FTE算出</span>FTE = (R医師×r_freq + W医師×w_freq) × lc_adj × fc_weight ÷ (20日/月 × コール/日)
   CS: コール/日 = 2.5  →  月間キャパ = 50 コール/FTE
   PS: コール/日 = 1.5  →  月間キャパ = 30 コール/FTE
 
@@ -1927,21 +1927,22 @@ target_drs(p) = r_doctors(p) + w_doctors(p)
   <div class="section-header">
     <span class="step-badge">2</span>
     <div>
-      <div class="section-title">FC / SC 分割</div>
-      <div class="section-subtitle">ターゲット医師を First Call / Second Call に区分する</div>
+      <div class="section-title">FC / SC 訪問コスト重み</div>
+      <div class="section-subtitle">品目の訪問種別（主訪問 / ついで訪問）によるコスト重み付け</div>
     </div>
   </div>
   <div class="section-body">
     <p>
-      ターゲット医師を訪問優先度の高い <strong>FC（First Call）</strong> と
-      それ以外の <strong>SC（Second Call）</strong> に分類します。
-      FC は訪問頻度が高く、FTE への寄与が大きくなります。
+      FC（First Call）とSC（Second Call）は<strong>医師の分類ではなく、品目の訪問種別</strong>です。
+      ある医師Aに対してTRIはFC（主訪問）、INTはSC（ついで訪問）として同一訪問内で活動します。
+      ターゲット医師はR/Wティアで管理し、FC/SCは訪問コストの重みとして品目ごとに設定します。
     </p>
     <h3>分割式</h3>
     <div class="formula-box">
-      <div class="formula-label">STEP 2 — FC/SC 分割</div>
-FC_drs(p) = target_drs(p) × fc_rate(p)
-SC_drs(p) = target_drs(p) × (1 − fc_rate(p))
+      <div class="formula-label">STEP 2 — FC/SC 訪問コスト重み</div>
+fc_weight(p) = fc_ratio(p) + (1 − fc_ratio(p)) × SC_COEFFICIENT
+required_calls(p) = raw_calls(p) × fc_weight(p)
+<br><small style="opacity:0.75">raw_calls = R医師×r_freq×lc_adj + W医師×w_freq×lc_adj</small>
 
 <span class="comment"># オーバーラップ（複数品目で同一医師を訪問）を考慮したFCオフセット</span>
 effective_FC(p) = FC_drs(p) − overlap_offset(p)
@@ -1950,9 +1951,7 @@ effective_FC(p) = FC_drs(p) − overlap_offset(p)
     <div class="info-box amber">
       <span class="info-icon">⚠️</span>
       <span>
-        SC 医師のうち、マインドスケープスコアが閾値（<span class="num-badge">0.5</span>）を超えた場合、
-        翌期に FC へ自動アップグレードされます。アップグレード率は
-        <code>sc_upgrade_rate</code>（デフォルト <span class="num-badge">10%</span>/年）で制御します。
+        fc_sc_ratio.csv で品目ごとに fc_ratio（0.0〜1.0）を直接指定します。
       </span>
     </div>
     <div class="two-col">
@@ -2031,7 +2030,7 @@ visit_freq_FC(p, t) = base_freq(p) × lifecycle_factor(p, t) × competition_fact
     </p>
     <div class="formula-box">
       <div class="formula-label">STEP 4 — MR FTE 算出式（コア）</div>
-FTE(p, t) = (FC_drs(p,t) × visit_freq_FC(p,t) + SC_drs(p,t) × <span class="highlight">0.1</span>)
+FTE(p, t) = (R_drs × r_freq + W_drs × w_freq) × lc_adj × fc_weight(p)
             ÷ (20日/月 × コール/日)
 
 <span class="highlight">CS エリア:</span>  コール/日 = <span class="highlight">2.5</span>  →  月間キャパ = <span class="highlight">50</span> コール/FTE
@@ -2553,7 +2552,7 @@ class FY2029HTMLReporter:
                 title=f"品目別年度FTEサマリー（{TARGET_FY}）",
                 bar_cols=["avg_required_fte", "max_required_fte"],
             ),
-            table_fc_sc=_df_to_html(fc_sc_summary, title="FC/SC医師数内訳"),
+            table_fc_sc=_df_to_html(fc_sc_summary, title="FC/SC訪問コスト重み内訳"),
             table_ove=_df_to_html(allocation_df, title="ドナー品目別 削減FTE詳細",
                                    bar_cols=["fte_reduction"]),
             table_headcount=_df_to_html(total_fte_display, title="領域×月別 FTE過不足一覧"),
