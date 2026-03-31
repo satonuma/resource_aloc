@@ -3,1841 +3,410 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FTEシミュレーション ロジック解説</title>
+<title>FTE算出ロジックドキュメント (FY2026-2035)</title>
 <style>
-  /* ===== リセット & ベース ===== */
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  :root {
-    --navy:       #0d1f3c;
-    --navy-mid:   #1a3560;
-    --blue:       #2563eb;
-    --blue-light: #3b82f6;
-    --sky:        #dbeafe;
-    --sky-mid:    #bfdbfe;
-    --green:      #059669;
-    --green-light:#d1fae5;
-    --amber:      #d97706;
-    --amber-light:#fef3c7;
-    --red:        #dc2626;
-    --red-light:  #fee2e2;
-    --purple:     #7c3aed;
-    --purple-light:#ede9fe;
-    --gray-50:    #f8fafc;
-    --gray-100:   #f1f5f9;
-    --gray-200:   #e2e8f0;
-    --gray-300:   #cbd5e1;
-    --gray-500:   #64748b;
-    --gray-700:   #334155;
-    --gray-900:   #0f172a;
-    --white:      #ffffff;
-    --font-sans:  "Hiragino Sans", "Meiryo", "Yu Gothic", "Segoe UI", sans-serif;
-    --shadow-sm:  0 1px 3px rgba(0,0,0,.08);
-    --shadow:     0 4px 16px rgba(0,0,0,.10);
-    --shadow-lg:  0 8px 32px rgba(0,0,0,.14);
-    --radius:     10px;
-  }
-
-  html { scroll-behavior: smooth; }
-
+  * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: var(--font-sans);
-    background: var(--gray-50);
-    color: var(--gray-700);
-    font-size: 14.5px;
-    line-height: 1.75;
-  }
-
-  /* ===== サイドバー ===== */
-  .sidebar {
-    position: fixed;
-    top: 0; left: 0;
-    width: 240px;
-    height: 100vh;
-    background: var(--navy);
-    overflow-y: auto;
-    z-index: 100;
+    font-family: "Segoe UI", "Helvetica Neue", Arial, "Hiragino Sans", sans-serif;
+    background: #f4f6f9;
+    color: #1a1a2e;
     display: flex;
-    flex-direction: column;
-  }
-  .sidebar-logo {
-    padding: 28px 20px 20px;
-    border-bottom: 1px solid rgba(255,255,255,.1);
-  }
-  .sidebar-logo .label {
-    font-size: 10px;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-    color: rgba(255,255,255,.5);
-    margin-bottom: 4px;
-  }
-  .sidebar-logo .title {
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--white);
-    line-height: 1.4;
-  }
-  .nav-section {
-    padding: 14px 16px 4px;
-    font-size: 9.5px;
-    letter-spacing: .12em;
-    text-transform: uppercase;
-    color: rgba(255,255,255,.35);
-  }
-  .nav-link {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 20px;
-    color: rgba(255,255,255,.65);
-    text-decoration: none;
-    font-size: 12.5px;
-    transition: all .15s;
-    border-left: 3px solid transparent;
-  }
-  .nav-link:hover, .nav-link.active {
-    color: var(--white);
-    background: rgba(255,255,255,.07);
-    border-left-color: var(--blue-light);
-  }
-  .nav-num {
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: rgba(255,255,255,.12);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 10px;
-    font-weight: 700;
-    flex-shrink: 0;
-    color: rgba(255,255,255,.7);
-  }
-
-  /* ===== メインレイアウト ===== */
-  .main {
-    margin-left: 240px;
     min-height: 100vh;
   }
 
-  /* ===== ヒーローヘッダー ===== */
-  .hero {
-    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 60%, #1e40af 100%);
-    padding: 64px 60px 56px;
-    position: relative;
-    overflow: hidden;
-  }
-  .hero::before {
-    content: "";
-    position: absolute;
-    top: -80px; right: -60px;
-    width: 420px; height: 420px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(59,130,246,.18) 0%, transparent 70%);
-    pointer-events: none;
-  }
-  .hero::after {
-    content: "";
-    position: absolute;
-    bottom: -60px; left: 30%;
-    width: 300px; height: 300px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(37,99,235,.12) 0%, transparent 70%);
-    pointer-events: none;
-  }
-  .hero-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: rgba(59,130,246,.22);
-    border: 1px solid rgba(59,130,246,.4);
-    border-radius: 20px;
-    padding: 4px 14px;
-    font-size: 11px;
-    letter-spacing: .08em;
-    color: #93c5fd;
-    text-transform: uppercase;
-    margin-bottom: 20px;
-  }
-  .hero h1 {
-    font-size: 34px;
-    font-weight: 800;
-    color: var(--white);
-    line-height: 1.25;
-    margin-bottom: 16px;
-    letter-spacing: -.01em;
-  }
-  .hero-sub {
-    font-size: 16px;
-    color: rgba(255,255,255,.65);
-    max-width: 600px;
-    line-height: 1.65;
-    margin-bottom: 32px;
-  }
-  .hero-meta {
-    display: flex;
-    gap: 32px;
-    flex-wrap: wrap;
-  }
-  .hero-meta-item {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .hero-meta-item .label {
-    font-size: 10px;
-    letter-spacing: .1em;
-    text-transform: uppercase;
-    color: rgba(255,255,255,.4);
-  }
-  .hero-meta-item .value {
-    font-size: 14px;
-    font-weight: 600;
-    color: rgba(255,255,255,.9);
-  }
-
-  /* ===== コンテンツ ===== */
-  .content {
-    padding: 48px 60px;
-    max-width: 1000px;
-  }
-
-  /* ===== セクション ===== */
-  .section {
-    margin-bottom: 72px;
-    scroll-margin-top: 24px;
-  }
-  .section-header {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    margin-bottom: 28px;
-    padding-bottom: 16px;
-    border-bottom: 2px solid var(--gray-200);
-  }
-  .section-num {
-    width: 36px; height: 36px;
-    background: var(--blue);
-    border-radius: 9px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 15px;
-    font-weight: 800;
-    color: var(--white);
-    flex-shrink: 0;
-    box-shadow: 0 2px 8px rgba(37,99,235,.35);
-  }
-  .section-header h2 {
-    font-size: 22px;
-    font-weight: 700;
-    color: var(--gray-900);
-    letter-spacing: -.01em;
-  }
-  .section-desc {
-    background: var(--sky);
-    border-left: 4px solid var(--blue);
-    border-radius: 0 var(--radius) var(--radius) 0;
-    padding: 14px 20px;
-    font-size: 13.5px;
-    color: #1e40af;
-    margin-bottom: 28px;
-    line-height: 1.65;
-  }
-
-  /* ===== カード ===== */
-  .card {
-    background: var(--white);
-    border: 1px solid var(--gray-200);
-    border-radius: var(--radius);
-    padding: 28px;
-    box-shadow: var(--shadow-sm);
-    margin-bottom: 20px;
-  }
-  .card-title {
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--gray-900);
-    margin-bottom: 14px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .card-title::before {
-    content: "";
-    width: 4px; height: 16px;
-    background: var(--blue);
-    border-radius: 2px;
+  /* Sidebar */
+  nav#sidebar {
+    width: 240px;
+    min-width: 240px;
+    background: #0d1b2a;
+    color: #c9d6df;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 24px 0;
     flex-shrink: 0;
   }
-
-  /* ===== フローチャート ===== */
-  .flowchart {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0;
-    margin: 24px 0;
-  }
-  .flow-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-    justify-content: center;
-    width: 100%;
-    margin-bottom: 0;
-  }
-  .flow-box {
-    background: var(--white);
-    border: 2px solid var(--blue);
-    border-radius: 10px;
-    padding: 14px 20px;
-    min-width: 160px;
-    text-align: center;
-    box-shadow: var(--shadow-sm);
-    position: relative;
-  }
-  .flow-box .num {
-    position: absolute;
-    top: -10px; left: 50%;
-    transform: translateX(-50%);
-    background: var(--blue);
-    color: var(--white);
-    border-radius: 10px;
-    font-size: 10px;
-    font-weight: 700;
-    padding: 2px 8px;
-    white-space: nowrap;
-  }
-  .flow-box .title {
+  nav#sidebar h1 {
     font-size: 13px;
     font-weight: 700;
-    color: var(--navy);
-    margin-top: 6px;
-    margin-bottom: 3px;
+    color: #ffffff;
+    padding: 0 20px 16px 20px;
+    border-bottom: 1px solid #1e3a5f;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
   }
-  .flow-box .sub {
-    font-size: 11px;
-    color: var(--gray-500);
-    line-height: 1.4;
+  nav#sidebar ul {
+    list-style: none;
+    padding: 12px 0;
   }
-  .flow-box.green  { border-color: var(--green); }
-  .flow-box.green .num { background: var(--green); }
-  .flow-box.amber  { border-color: var(--amber); }
-  .flow-box.amber .num { background: var(--amber); }
-  .flow-box.purple { border-color: var(--purple); }
-  .flow-box.purple .num { background: var(--purple); }
-  .flow-box.red    { border-color: var(--red); }
-  .flow-box.red .num { background: var(--red); }
-  .flow-box.input  {
-    background: var(--gray-100);
-    border: 2px dashed var(--gray-300);
-    border-radius: 8px;
-    min-width: 120px;
+  nav#sidebar ul li a {
+    display: block;
+    padding: 9px 20px;
+    color: #94a3b8;
+    text-decoration: none;
+    font-size: 13px;
+    transition: background 0.15s, color 0.15s;
+    border-left: 3px solid transparent;
   }
-  .flow-box.input .title { color: var(--gray-700); font-size: 12px; }
-  .flow-arrow {
-    font-size: 22px;
-    color: var(--gray-300);
-    flex-shrink: 0;
-    line-height: 1;
+  nav#sidebar ul li a:hover {
+    background: #1e3a5f;
+    color: #e2e8f0;
+    border-left-color: #3b82f6;
   }
-  .flow-arrow-down {
-    width: 100%;
-    display: flex;
-    justify-content: center;
-    padding: 6px 0;
-    color: var(--gray-300);
-    font-size: 22px;
-  }
-  .flow-connector {
-    width: 2px;
-    height: 28px;
-    background: var(--gray-300);
-    margin: 0 auto;
-  }
-  .flow-h {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-    justify-content: center;
-    width: 100%;
-    margin: 16px 0;
+  .nav-section {
+    display: block;
+    padding: 14px 20px 4px 20px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #4a6fa5;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
   }
 
-  /* ===== 数式ボックス ===== */
-  .formula-box {
-    background: var(--navy);
-    border-radius: var(--radius);
-    padding: 20px 28px;
-    margin: 20px 0;
-    font-family: "Courier New", monospace;
+  /* Main content */
+  main {
+    flex: 1;
+    padding: 40px 48px;
+    max-width: 960px;
   }
-  .formula-box .f-comment {
-    font-size: 11px;
-    color: rgba(255,255,255,.4);
-    font-family: var(--font-sans);
-    margin-bottom: 10px;
-    line-height: 1.5;
+
+  .page-title {
+    font-size: 26px;
+    font-weight: 700;
+    color: #0d1b2a;
+    margin-bottom: 6px;
   }
-  .formula-box .f-line {
+  .page-subtitle {
     font-size: 14px;
-    color: #93c5fd;
-    line-height: 2;
-  }
-  .formula-box .f-line .var { color: #fde68a; }
-  .formula-box .f-line .op  { color: rgba(255,255,255,.5); }
-  .formula-box .f-line .num { color: #a5f3fc; }
-  .formula-box .f-line .comment { color: rgba(255,255,255,.35); font-size: 12px; margin-left: 12px; }
-  .formula-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--blue);
-    background: var(--sky);
-    border-radius: 6px;
-    padding: 4px 12px;
-    margin-bottom: 10px;
+    color: #64748b;
+    margin-bottom: 36px;
   }
 
-  /* ===== テーブル ===== */
-  .tbl-wrap { overflow-x: auto; margin: 16px 0; }
-  table {
+  section {
+    background: #ffffff;
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+    padding: 28px 32px;
+    margin-bottom: 28px;
+  }
+  section h2 {
+    font-size: 18px;
+    font-weight: 700;
+    color: #0d1b2a;
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #3b82f6;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .step-badge {
+    background: #3b82f6;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 12px;
+    white-space: nowrap;
+  }
+
+  h3 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1e3a5f;
+    margin: 18px 0 8px 0;
+  }
+  p {
+    font-size: 14px;
+    line-height: 1.7;
+    color: #374151;
+    margin-bottom: 10px;
+  }
+  ul.logic-list {
+    list-style: none;
+    padding: 0;
+    margin-bottom: 12px;
+  }
+  ul.logic-list li {
+    font-size: 14px;
+    line-height: 1.7;
+    color: #374151;
+    padding: 4px 0 4px 18px;
+    position: relative;
+  }
+  ul.logic-list li::before {
+    content: "B8";
+    position: absolute;
+    left: 0;
+    color: #3b82f6;
+    font-size: 12px;
+  }
+
+  .formula-box {
+    background: #f0f4ff;
+    border: 1px solid #bfcfff;
+    border-left: 4px solid #3b82f6;
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin: 14px 0;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 13px;
+    color: #1e3a5f;
+    line-height: 1.8;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .info-box {
+    background: #ecfdf5;
+    border: 1px solid #6ee7b7;
+    border-left: 4px solid #10b981;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin: 12px 0;
+    font-size: 13px;
+    color: #064e3b;
+    line-height: 1.6;
+  }
+
+  table.data-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 13px;
+    margin-top: 10px;
   }
-  thead tr { background: var(--navy); }
-  thead th {
-    color: var(--white);
-    padding: 11px 16px;
-    font-weight: 600;
+  table.data-table thead th {
+    background: #0d1b2a;
+    color: #e2e8f0;
+    padding: 10px 14px;
     text-align: left;
-    white-space: nowrap;
-    letter-spacing: .02em;
+    font-weight: 600;
   }
-  tbody tr { border-bottom: 1px solid var(--gray-200); }
-  tbody tr:nth-child(even) { background: var(--gray-50); }
-  tbody tr:hover { background: var(--sky); }
-  tbody td { padding: 10px 16px; vertical-align: top; line-height: 1.5; }
-  .td-num { font-family: monospace; font-size: 13px; color: var(--navy); font-weight: 600; }
-  .td-label { font-weight: 600; color: var(--gray-900); }
-
-  /* ===== バッジ ===== */
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    border-radius: 6px;
-    padding: 2px 10px;
-    font-size: 11px;
+  table.data-table tbody tr:nth-child(odd) {
+    background: #f8fafc;
+  }
+  table.data-table tbody tr:nth-child(even) {
+    background: #ffffff;
+  }
+  table.data-table tbody td {
+    padding: 9px 14px;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: top;
+  }
+  table.data-table tbody td:first-child {
+    font-family: "Consolas", "Courier New", monospace;
+    color: #1e3a5f;
     font-weight: 600;
     white-space: nowrap;
   }
-  .badge-blue   { background: var(--sky); color: #1d4ed8; }
-  .badge-green  { background: var(--green-light); color: #065f46; }
-  .badge-amber  { background: var(--amber-light); color: #92400e; }
-  .badge-red    { background: var(--red-light); color: #991b1b; }
-  .badge-purple { background: var(--purple-light); color: #5b21b6; }
-  .badge-gray   { background: var(--gray-100); color: var(--gray-700); }
 
-  /* ===== ライフサイクルバー ===== */
-  .lifecycle {
-    display: flex;
-    border-radius: var(--radius);
-    overflow: hidden;
-    margin: 20px 0;
-    box-shadow: var(--shadow-sm);
-  }
-  .lc-phase {
-    flex: 1;
-    padding: 14px 12px;
-    text-align: center;
-    position: relative;
-  }
-  .lc-phase::after {
-    content: "▶";
-    position: absolute;
-    right: -8px; top: 50%;
-    transform: translateY(-50%);
-    font-size: 13px;
-    color: rgba(255,255,255,.6);
-    z-index: 1;
-  }
-  .lc-phase:last-child::after { display: none; }
-  .lc-phase .ph-num {
-    font-size: 10px;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    opacity: .75;
-    margin-bottom: 3px;
-  }
-  .lc-phase .ph-name {
-    font-size: 13px;
-    font-weight: 700;
-    margin-bottom: 5px;
-  }
-  .lc-phase .ph-period {
-    font-size: 10.5px;
-    opacity: .8;
-    margin-bottom: 5px;
-  }
-  .lc-phase .ph-range {
-    font-size: 18px;
-    font-weight: 800;
-    letter-spacing: -.01em;
-  }
-  .lc-phase .ph-sub { font-size: 10px; opacity: .75; }
-  .ph1 { background: #2563eb; color: white; }
-  .ph2 { background: #059669; color: white; }
-  .ph3 { background: #0891b2; color: white; }
-  .ph4 { background: #d97706; color: white; }
-  .ph5 { background: #64748b; color: white; }
-
-  /* ===== グリッド ===== */
-  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
-
-  /* ===== ステップリスト ===== */
-  .steps { display: flex; flex-direction: column; gap: 0; position: relative; }
-  .steps::before {
-    content: "";
-    position: absolute;
-    left: 18px; top: 18px; bottom: 18px;
-    width: 2px;
-    background: var(--gray-200);
-  }
-  .step {
-    display: flex;
-    gap: 16px;
-    align-items: flex-start;
-    padding: 16px 0;
-    position: relative;
-  }
-  .step-dot {
-    width: 36px; height: 36px;
-    border-radius: 50%;
-    background: var(--blue);
-    color: var(--white);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 13px;
-    font-weight: 800;
-    flex-shrink: 0;
-    z-index: 1;
-    box-shadow: 0 0 0 4px var(--gray-50);
-  }
-  .step-body { flex: 1; padding-top: 4px; }
-  .step-title { font-weight: 700; color: var(--gray-900); margin-bottom: 4px; font-size: 14px; }
-  .step-text  { font-size: 13px; color: var(--gray-500); line-height: 1.6; }
-
-  /* ===== KPIカード ===== */
-  .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin: 24px 0; }
-  .kpi {
-    background: var(--white);
-    border: 1px solid var(--gray-200);
-    border-radius: var(--radius);
-    padding: 20px;
-    text-align: center;
-    box-shadow: var(--shadow-sm);
-  }
-  .kpi .k-label { font-size: 11px; color: var(--gray-500); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }
-  .kpi .k-val   { font-size: 28px; font-weight: 800; color: var(--navy); line-height: 1; margin-bottom: 4px; }
-  .kpi .k-unit  { font-size: 11px; color: var(--gray-500); }
-
-  /* ===== アコーディオン風インフォ ===== */
-  .info-box {
-    background: var(--white);
-    border: 1px solid var(--gray-200);
-    border-radius: var(--radius);
-    overflow: hidden;
-    margin: 16px 0;
-  }
-  .info-box-head {
-    background: var(--gray-100);
-    padding: 12px 20px;
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--gray-900);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .info-box-body { padding: 16px 20px; }
-
-  /* ===== チャート代替（CSS棒グラフ）===== */
-  .bar-chart { display: flex; flex-direction: column; gap: 10px; margin: 16px 0; }
-  .bar-row { display: flex; align-items: center; gap: 10px; }
-  .bar-label { width: 80px; font-size: 12px; font-weight: 600; color: var(--gray-700); flex-shrink: 0; text-align: right; }
-  .bar-track { flex: 1; background: var(--gray-100); border-radius: 4px; height: 22px; overflow: hidden; }
-  .bar-fill { height: 100%; border-radius: 4px; display: flex; align-items: center; padding-left: 10px; }
-  .bar-fill span { font-size: 11px; font-weight: 700; color: white; }
-  .bar-value { width: 50px; font-size: 12px; font-weight: 600; color: var(--gray-500); flex-shrink: 0; }
-
-  /* ===== Hill曲線（SVG）===== */
-  .chart-area { background: var(--white); border: 1px solid var(--gray-200); border-radius: var(--radius); padding: 20px; margin: 16px 0; }
-  .chart-title { font-size: 13px; font-weight: 700; color: var(--gray-900); margin-bottom: 12px; }
-
-  /* ===== フッター ===== */
   footer {
-    margin-left: 240px;
-    background: var(--navy);
-    color: rgba(255,255,255,.5);
-    text-align: center;
-    padding: 24px;
+    margin-top: 40px;
+    padding: 16px 0;
     font-size: 12px;
+    color: #94a3b8;
+    border-top: 1px solid #e2e8f0;
   }
-
-  /* ===== ハイライト ===== */
-  .highlight {
-    background: linear-gradient(120deg, #fef9c3 0%, #fef08a 100%);
-    border-radius: 3px;
-    padding: 0 4px;
-    color: var(--gray-900);
-    font-weight: 600;
-  }
-  .mono { font-family: "Courier New", monospace; font-size: 13px; background: var(--gray-100); padding: 2px 6px; border-radius: 4px; color: var(--navy); }
-
-  /* ===== 注釈 ===== */
-  .note {
-    display: flex;
-    gap: 10px;
-    align-items: flex-start;
-    background: var(--amber-light);
-    border-left: 4px solid var(--amber);
-    border-radius: 0 var(--radius) var(--radius) 0;
-    padding: 12px 16px;
-    margin: 16px 0;
-    font-size: 13px;
-    color: #78350f;
-    line-height: 1.6;
-  }
-  .note-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
 </style>
 </head>
 <body>
 
-<!-- ===== サイドバーナビ ===== -->
-<nav class="sidebar">
-  <div class="sidebar-logo">
-    <div class="label">FTEシミュレーション</div>
-    <div class="title">ロジック解説ドキュメント</div>
-  </div>
-
-  <div class="nav-section">概要</div>
-  <a href="#summary"  class="nav-link" style="background:rgba(255,255,255,0.08);font-weight:700;"><span class="nav-num">★</span>ロジック要約</a>
-  <a href="#overview" class="nav-link"><span class="nav-num">—</span>システム全体像</a>
-  <a href="#inputs"   class="nav-link"><span class="nav-num">—</span>入力データ</a>
-
-  <div class="nav-section">計算ステップ</div>
-  <a href="#s1" class="nav-link"><span class="nav-num">1</span>ターゲット医師数</a>
-  <a href="#s2" class="nav-link"><span class="nav-num">2</span>FC/SC分割</a>
-  <a href="#s3" class="nav-link"><span class="nav-num">3</span>訪問頻度推定</a>
-  <a href="#s4" class="nav-link"><span class="nav-num">4</span>MR/Digital比率</a>
-  <a href="#s5" class="nav-link"><span class="nav-num">5</span>FTE算出</a>
-  <a href="#s6" class="nav-link"><span class="nav-num">6</span>新発売品処理</a>
-  <a href="#s7" class="nav-link"><span class="nav-num">7</span>正規化・離散化</a>
-  <a href="#s8" class="nav-link"><span class="nav-num">8</span>ROI最適FTE</a>
-
-  <div class="nav-section">付録</div>
-  <a href="#params"   class="nav-link"><span class="nav-num">—</span>パラメータ一覧</a>
-  <a href="#formulas" class="nav-link"><span class="nav-num">—</span>数式サマリー</a>
+<nav id="sidebar">
+  <h1>FTE ロジック</h1>
+  <ul>
+    <li><span class="nav-section">ステップ</span></li>
+    <li><a href="#step1">STEP 1: ターゲット医師数</a></li>
+    <li><a href="#step2">STEP 2: FC/SC分割</a></li>
+    <li><a href="#step3">STEP 3: 訪問頻度推定</a></li>
+    <li><a href="#step4">STEP 4: MR FTE算出</a></li>
+    <li><a href="#step5">STEP 5: HC正規化</a></li>
+    <li><a href="#step6">STEP 6: 新発売品FTE配分</a></li>
+    <li><span class="nav-section">別途分析</span></li>
+    <li><a href="#digital">デジタル有効性スコア</a></li>
+    <li><span class="nav-section">参照</span></li>
+    <li><a href="#datafiles">データファイル一覧</a></li>
+  </ul>
 </nav>
 
-<!-- ===== メインコンテンツ ===== -->
-<main class="main">
-
-  <!-- ヒーロー -->
-  <div class="hero">
-    <div class="hero-badge">📐 Technical Document</div>
-    <h1>FTEシミュレーション<br>ロジック解説</h1>
-    <p class="hero-sub">
-      MR（医薬情報担当者）のリソースアロケーションを定量的に算出する
-      シミュレーションシステムの計算ロジックを、各ステップごとに詳細に解説します。
-    </p>
-    <div class="hero-meta">
-      <div class="hero-meta-item">
-        <span class="label">対象期間</span>
-        <span class="value">FY2026〜FY2035（10年間）</span>
-      </div>
-      <div class="hero-meta-item">
-        <span class="label">対象品目数</span>
-        <span class="value">18品目（CS 15品目 / PS 3品目）</span>
-      </div>
-      <div class="hero-meta-item">
-        <span class="label">現行MR数</span>
-        <span class="value">CS 380名 / PS 45名</span>
-      </div>
-      <div class="hero-meta-item">
-        <span class="label">計算粒度</span>
-        <span class="value">品目 × 月別</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="content">
-
-    <!-- ===== ロジック要約（エグゼクティブサマリー）===== -->
-    <section class="section" id="summary">
-      <div class="section-header">
-        <div class="section-num" style="background:var(--green);">★</div>
-        <h2>ひとめでわかる最適FTE推定ロジック</h2>
-      </div>
-      <div class="section-desc">
-        MR人員（FTE）の最適配分は、以下の問いに答えるシステムです。<br>
-        <strong>「CS 380名・PS 45名というヘッドカウント制約の中で、どの品目に何人のMRを月ごとに割り当てれば売上が最大になるか？」</strong>
-      </div>
-
-      <!-- 目的と入力 -->
-      <div class="card" style="margin-bottom:20px;">
-        <div class="card-title">目的と主な入力データ</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-          <div>
-            <div style="font-size:12px;font-weight:700;color:var(--blue);margin-bottom:8px;">目的</div>
-            <ul style="font-size:13px;line-height:2;padding-left:18px;">
-              <li>品目×月別の最適 MR 投入量（FTE）を算出</li>
-              <li>ヘッドカウント制約内で売上最大化の配分を決定</li>
-              <li>新発売品の立ち上げ投資と既存品目の最適縮小を両立</li>
-            </ul>
-          </div>
-          <div>
-            <div style="font-size:12px;font-weight:700;color:var(--blue);margin-bottom:8px;">主な入力データ</div>
-            <ul style="font-size:13px;line-height:2;padding-left:18px;">
-              <li><strong>活動実績</strong>（〜2026/3/31）: 医師ID・施設・訪問頻度</li>
-              <li><strong>品目マスタ</strong>: 発売日・LOE・患者数・適応数</li>
-              <li><strong>MMM出力</strong>: Hill応答曲線パラメータ・Adstock減衰率</li>
-              <li><strong>FC/SC設定</strong>: 品目ペア・担当比率</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-
-      <!-- 7ステップ フロー -->
-      <div class="card">
-        <div class="card-title">計算の流れ ― 7ステップ</div>
-        <div style="display:flex;flex-direction:column;gap:0;">
-
-          <div style="display:flex;align-items:stretch;gap:0;">
-            <div style="display:flex;flex-direction:column;align-items:center;min-width:40px;">
-              <div style="width:32px;height:32px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;">1</div>
-              <div style="width:2px;flex:1;background:var(--gray-200);margin:4px 0;"></div>
-            </div>
-            <div style="padding:4px 16px 16px;flex:1;">
-              <div style="font-weight:700;font-size:14px;margin-bottom:4px;">ターゲット医師数の算出</div>
-              <div style="font-size:13px;color:var(--gray-500);line-height:1.7;">
-                活動実績（〜2026/3）から施設カバレッジを推定し、品目ごとの訪問対象医師数を決定する。
-                新発売品は参照品（類似品目）の医師数を基準に推計。
-              </div>
-            </div>
-          </div>
-
-          <div style="display:flex;align-items:stretch;gap:0;">
-            <div style="display:flex;flex-direction:column;align-items:center;min-width:40px;">
-              <div style="width:32px;height:32px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;">2</div>
-              <div style="width:2px;flex:1;background:var(--gray-200);margin:4px 0;"></div>
-            </div>
-            <div style="padding:4px 16px 16px;flex:1;">
-              <div style="font-weight:700;font-size:14px;margin-bottom:4px;">FC / SC 分割</div>
-              <div style="font-size:13px;color:var(--gray-500);line-height:1.7;">
-                MR は複数品目を同一訪問で担当する（セカンドコール）。
-                品目間の医師被り率を計算し、主担当（FC）と同行担当（SC）に分割。
-                SCのFTEコストはFCの10%のみ計上（同一訪問内で追加時間が少ないため）。
-              </div>
-            </div>
-          </div>
-
-          <div style="display:flex;align-items:stretch;gap:0;">
-            <div style="display:flex;flex-direction:column;align-items:center;min-width:40px;">
-              <div style="width:32px;height:32px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;">3</div>
-              <div style="width:2px;flex:1;background:var(--gray-200);margin:4px 0;"></div>
-            </div>
-            <div style="padding:4px 16px 16px;flex:1;">
-              <div style="font-weight:700;font-size:14px;margin-bottom:4px;">訪問頻度の推定（ライフサイクル補正）</div>
-              <div style="font-size:13px;color:var(--gray-500);line-height:1.7;">
-                実績ベースの月次訪問頻度に、ライフサイクル段階に応じた補正を乗算。
-                <code style="background:var(--sky);padding:1px 5px;border-radius:3px;font-size:12px;">発売後12ヶ月以内: ×1.3</code>
-                <code style="background:var(--amber-light);padding:1px 5px;border-radius:3px;font-size:12px;">LOE前12ヶ月: ×0.7</code>
-                <code style="background:var(--red-light);padding:1px 5px;border-radius:3px;font-size:12px;">LOE後: ×0.3</code>
-              </div>
-            </div>
-          </div>
-
-          <div style="display:flex;align-items:stretch;gap:0;">
-            <div style="display:flex;flex-direction:column;align-items:center;min-width:40px;">
-              <div style="width:32px;height:32px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;">4</div>
-              <div style="width:2px;flex:1;background:var(--gray-200);margin:4px 0;"></div>
-            </div>
-            <div style="padding:4px 16px 16px;flex:1;">
-              <div style="font-weight:700;font-size:14px;margin-bottom:4px;">MR / デジタル比率の推定</div>
-              <div style="font-size:13px;color:var(--gray-500);line-height:1.7;">
-                MMMの出力するAdstock減衰パラメータから各チャネルの限界応答を計算し、
-                MR活動とデジタル活動の最適比率を品目ごとに推定。
-                減衰が遅い（効果が長続きする）チャネルほど、デジタル比率が高くなる傾向。
-              </div>
-            </div>
-          </div>
-
-          <div style="display:flex;align-items:stretch;gap:0;">
-            <div style="display:flex;flex-direction:column;align-items:center;min-width:40px;">
-              <div style="width:32px;height:32px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;">5</div>
-              <div style="width:2px;flex:1;background:var(--gray-200);margin:4px 0;"></div>
-            </div>
-            <div style="padding:4px 16px 16px;flex:1;">
-              <div style="font-weight:700;font-size:14px;margin-bottom:4px;">FTE 算出（コア計算）</div>
-              <div style="font-size:13px;color:var(--gray-500);line-height:1.7;">
-                <code style="background:var(--green-light);padding:2px 8px;border-radius:4px;font-size:12px;display:inline-block;margin:4px 0;">
-                  FTE = ターゲット医師数 × 訪問頻度[回/月] × MR比率 ÷（稼働日[20日] × コール/日[CS:2.5 / PS:1.5]）
-                </code><br>
-                FCとSCのFTEを別々に算出し、合算して品目×月別の必要FTEを得る。
-              </div>
-            </div>
-          </div>
-
-          <div style="display:flex;align-items:stretch;gap:0;">
-            <div style="display:flex;flex-direction:column;align-items:center;min-width:40px;">
-              <div style="width:32px;height:32px;border-radius:50%;background:var(--amber);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;">6</div>
-              <div style="width:2px;flex:1;background:var(--gray-200);margin:4px 0;"></div>
-            </div>
-            <div style="padding:4px 16px 16px;flex:1;">
-              <div style="font-weight:700;font-size:14px;margin-bottom:4px;">新発売品への FTE 移動</div>
-              <div style="font-size:13px;color:var(--gray-500);line-height:1.7;">
-                OVE・Zaso・WSA の発売時に必要なFTEを、既存品目から削出する。
-                削出量は MMMの Hill 関数から算出した限界ROIの逆数に比例して配分
-                （ROIが低い品目ほど多く削る）。ランチカーブで発売後の月次投資量を制御。
-              </div>
-            </div>
-          </div>
-
-          <div style="display:flex;align-items:stretch;gap:0;">
-            <div style="display:flex;flex-direction:column;align-items:center;min-width:40px;">
-              <div style="width:32px;height:32px;border-radius:50%;background:var(--purple);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;">7</div>
-            </div>
-            <div style="padding:4px 16px 0;flex:1;">
-              <div style="font-weight:700;font-size:14px;margin-bottom:4px;">正規化・ROI最大化最適配分</div>
-              <div style="font-size:13px;color:var(--gray-500);line-height:1.7;">
-                ① <strong>ヘッドカウント正規化</strong>: 毎月の領域合計がCS 380名・PS 45名になるよう品目間比率を保ちながらスケーリング。<br>
-                ② <strong>ROI最大化配分</strong>: MMMのHill応答曲線の一次微分（限界収益）が全品目で均等になる点が最適配分。
-                この「等限界収益の原則」により、追加の1 FTEが最も多くの売上を生む品目に自動的に集中する。
-              </div>
-            </div>
-          </div>
-
-        </div><!-- /flex -->
-      </div><!-- /card -->
-
-      <div class="note">
-        <span class="note-icon">💡</span>
-        <span>
-          <strong>活動実績データの期間:</strong> 訪問頻度・FC/SC被り率の推定に使用する活動データは <strong>〜2026年3月31日</strong> の実績値を使用。
-          納入実績データも同期間。FY2026以降の予測値は <code>sales_forecast.csv</code> で管理し、ROI最適配分の基準とする。
-        </span>
-      </div>
-    </section>
-
-    <!-- ===== システム全体像 ===== -->
-    <section class="section" id="overview">
-      <div class="section-header">
-        <div class="section-num" style="background:var(--navy);">📊</div>
-        <h2>システム全体像</h2>
-      </div>
-      <div class="section-desc">
-        FTEシミュレーションは、品目ごとの「どの医師を」「どの頻度で」「どのチャネルで」訪問すべきかを定量化し、
-        必要なMR人員（FTE）を月単位で算出するシステムです。
-        MMMの分析結果を活用し、科学的根拠に基づいたリソース配分を実現します。
-      </div>
-
-      <!-- 全体フロー -->
-      <div class="card">
-        <div class="card-title">計算フロー全体図</div>
-
-        <div class="flowchart">
-          <!-- 入力 -->
-          <div class="flow-h" style="gap:8px;">
-            <div class="flow-box input"><div class="title">活動実績データ</div><div class="sub">医師ID・訪問数</div></div>
-            <div class="flow-box input"><div class="title">品目マスタ</div><div class="sub">発売日・LOE・患者数</div></div>
-            <div class="flow-box input"><div class="title">MMM出力</div><div class="sub">Hill関数パラメータ</div></div>
-            <div class="flow-box input"><div class="title">FC/SC設定</div><div class="sub">品目ペア・比率</div></div>
-          </div>
-          <div class="flow-connector"></div>
-
-          <!-- Step 1〜4 横並び -->
-          <div class="flow-h" style="gap:12px;">
-            <div class="flow-box">
-              <div class="num">Step 1</div>
-              <div class="title">ターゲット医師数</div>
-              <div class="sub">実績 or 参照品推定</div>
-            </div>
-            <div class="flow-arrow">→</div>
-            <div class="flow-box green">
-              <div class="num">Step 2</div>
-              <div class="title">FC / SC 分割</div>
-              <div class="sub">被り率 or 比率指定</div>
-            </div>
-            <div class="flow-arrow">→</div>
-            <div class="flow-box amber">
-              <div class="num">Step 3</div>
-              <div class="title">訪問頻度推定</div>
-              <div class="sub">ライフサイクル補正</div>
-            </div>
-            <div class="flow-arrow">→</div>
-            <div class="flow-box purple">
-              <div class="num">Step 4</div>
-              <div class="title">MR/Digital 比率</div>
-              <div class="sub">Hill関数 限界効果</div>
-            </div>
-          </div>
-          <div class="flow-connector"></div>
-
-          <!-- Step 5 -->
-          <div class="flow-h">
-            <div class="flow-box red" style="min-width:260px;">
-              <div class="num">Step 5</div>
-              <div class="title">FTE 算出</div>
-              <div class="sub">必要コール数 ÷ 月間キャパシティ<br>= 必要 MR headcount</div>
-            </div>
-          </div>
-          <div class="flow-connector"></div>
-
-          <!-- Step 6〜7 -->
-          <div class="flow-h" style="gap:12px;">
-            <div class="flow-box green">
-              <div class="num">Step 6</div>
-              <div class="title">新発売品FTE移動</div>
-              <div class="sub">ドナー品目から段階削減</div>
-            </div>
-            <div class="flow-arrow">→</div>
-            <div class="flow-box amber">
-              <div class="num">Step 7</div>
-              <div class="title">正規化・離散化</div>
-              <div class="sub">ヘッドカウント制約 → 半期ステップ化</div>
-            </div>
-          </div>
-          <div class="flow-connector"></div>
-
-          <!-- 出力 -->
-          <div class="flow-h" style="gap:8px;">
-            <div class="flow-box input" style="background:var(--green-light);border-color:var(--green);">
-              <div class="title" style="color:var(--green);">月別 FTE テーブル</div>
-              <div class="sub">品目 × 月 × MR/Digital</div>
-            </div>
-            <div class="flow-box input" style="background:var(--green-light);border-color:var(--green);">
-              <div class="title" style="color:var(--green);">年度サマリー</div>
-              <div class="sub">FY別 平均FTE</div>
-            </div>
-            <div class="flow-box input" style="background:var(--green-light);border-color:var(--green);">
-              <div class="title" style="color:var(--green);">ROI最適FTE</div>
-              <div class="sub">等限界収益配分</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- KPI -->
-      <div class="kpi-row">
-        <div class="kpi">
-          <div class="k-label">月間稼働日数</div>
-          <div class="k-val">20</div>
-          <div class="k-unit">日 / 月</div>
-        </div>
-        <div class="kpi">
-          <div class="k-label">CS 日次コール上限</div>
-          <div class="k-val">2.5</div>
-          <div class="k-unit">件 / 日</div>
-        </div>
-        <div class="kpi">
-          <div class="k-label">PS 日次コール上限</div>
-          <div class="k-val">1.5</div>
-          <div class="k-unit">件 / 日</div>
-        </div>
-        <div class="kpi">
-          <div class="k-label">CS 月間キャパ</div>
-          <div class="k-val">50</div>
-          <div class="k-unit">コール / 月</div>
-        </div>
-        <div class="kpi">
-          <div class="k-label">PS 月間キャパ</div>
-          <div class="k-val">30</div>
-          <div class="k-unit">コール / 月</div>
-        </div>
-        <div class="kpi">
-          <div class="k-label">SC コスト係数</div>
-          <div class="k-val">0.1</div>
-          <div class="k-unit">FC比率に対して</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== 入力データ ===== -->
-    <section class="section" id="inputs">
-      <div class="section-header">
-        <div class="section-num" style="background:var(--gray-500);">📂</div>
-        <h2>入力データ</h2>
-      </div>
-      <div class="tbl-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>ファイル名</th>
-              <th>内容</th>
-              <th>主要カラム</th>
-              <th>用途</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td class="td-label mono">products.csv</td>
-              <td>品目マスタ</td>
-              <td>product_id, area, launch_ym, loe_ym, estimated_patients, num_indications</td>
-              <td>ライフサイクル管理・患者数ベース推定</td>
-            </tr>
-            <tr>
-              <td class="td-label mono">activity_data.csv</td>
-              <td>MR活動実績</td>
-              <td>activity_ym, product_id, doctor_id, activity_count</td>
-              <td>ターゲット医師数・訪問頻度の実績値</td>
-            </tr>
-            <tr>
-              <td class="td-label mono">mmm_decay_params.csv</td>
-              <td>MMMパラメータ</td>
-              <td>product_id, channel, alpha, beta, ec, slope</td>
-              <td>Hill関数によるMR/Digital比率算出</td>
-            </tr>
-            <tr>
-              <td class="td-label mono">activity_set.csv</td>
-              <td>FC/SCペア定義</td>
-              <td>fc_product, sc_product</td>
-              <td>どの品目をセカンドコールで訪問するか</td>
-            </tr>
-            <tr>
-              <td class="td-label mono">fc_sc_ratio.csv</td>
-              <td>FC比率設定</td>
-              <td>product_id, fc_ratio</td>
-              <td>FC/SC分割の明示的な比率指定</td>
-            </tr>
-            <tr>
-              <td class="td-label mono">target_doctors.csv</td>
-              <td>ターゲット医師数</td>
-              <td>product_id, target_doctors</td>
-              <td>既存品のベース医師数（キャッシュ）</td>
-            </tr>
-            <tr>
-              <td class="td-label mono">current_activities.csv</td>
-              <td>現在の活動量</td>
-              <td>product_id, mr_activity, digital_activity</td>
-              <td>Hill関数の参照点（現状スコア計算）</td>
-            </tr>
-            <tr>
-              <td class="td-label mono">competitor_schedule.csv</td>
-              <td>競合品発売スケジュール</td>
-              <td>product_id, launch_ym, intensity, boost_months</td>
-              <td>競合参入時のFTEブースト</td>
-            </tr>
-            <tr>
-              <td class="td-label mono">mr_ratio_params.csv</td>
-              <td>MR比率調整パラメータ</td>
-              <td>parameter, value</td>
-              <td>MR比率計算の係数チューニング</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- ===== Step 1: ターゲット医師数 ===== -->
-    <section class="section" id="s1">
-      <div class="section-header">
-        <div class="section-num">1</div>
-        <h2>ターゲット医師数の算出</h2>
-      </div>
-      <div class="section-desc">
-        各品目・各月において、MRが訪問すべき医師の数を算出します。
-        <strong>既存品は過去の実績</strong>から、<strong>新発売品は類似品の規模を参照</strong>しながら発売後の浸透率カーブに基づいて推定します。
-      </div>
-
-      <div class="grid-2">
-        <div class="card">
-          <div class="card-title">既存品目の場合</div>
-          <p style="font-size:13px;color:var(--gray-500);margin-bottom:14px;">
-            直近12ヶ月の月別ユニーク医師数の平均を基本値として使用します。
-          </p>
-          <div class="formula-box">
-            <div class="f-comment">// 直近12ヶ月の月別ユニーク医師数 → 平均</div>
-            <div class="f-line">
-              <span class="var">base_target</span>
-              <span class="op"> = </span>
-              mean( monthly_unique_doctors[-12:] )
-            </div>
-          </div>
-          <p style="font-size:12px;color:var(--gray-500);">
-            ※ target_doctors.csv でキャッシュとして保持し、過去実績が不足する場合に使用
-          </p>
-        </div>
-
-        <div class="card">
-          <div class="card-title">新発売品の場合</div>
-          <p style="font-size:13px;color:var(--gray-500);margin-bottom:14px;">
-            類似品（参照品）のターゲット医師数をベースに、患者規模・効能数・浸透率カーブで補正します。
-          </p>
-          <div class="formula-box">
-            <div class="f-comment">// 参照品ベース × 患者数比 × √効能数比 × ランプアップ</div>
-            <div class="f-line">
-              <span class="var">target</span><span class="op"> = </span><span class="var">base_ref</span>
-            </div>
-            <div class="f-line">
-              &nbsp;&nbsp;<span class="op">× </span>(patients_new / patients_ref)
-            </div>
-            <div class="f-line">
-              &nbsp;&nbsp;<span class="op">× </span>√(indications_new / indications_ref)
-            </div>
-            <div class="f-line">
-              &nbsp;&nbsp;<span class="op">× </span><span class="var">ramp_up_curve</span>[months_since_launch]
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">ランチカーブ（新発売品浸透率）の考え方</div>
-        <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px;">
-          新発売品は発売直後に最大限の活動を投下し（1.00）、普及が進むにつれてメンテナンスモードに移行します。
-          各品目の特性に合わせて任意の形状を設定できます。
-        </p>
-        <div class="bar-chart">
-          <div class="bar-row"><div class="bar-label">発売直後</div><div class="bar-track"><div class="bar-fill" style="width:100%;background:var(--blue);"><span>1.00</span></div></div><div class="bar-value">発売月</div></div>
-          <div class="bar-row"><div class="bar-label">6ヶ月後</div><div class="bar-track"><div class="bar-fill" style="width:90%;background:var(--blue-light);"><span>0.90</span></div></div><div class="bar-value">〜H1末</div></div>
-          <div class="bar-row"><div class="bar-label">12ヶ月後</div><div class="bar-track"><div class="bar-fill" style="width:81%;background:#60a5fa;"><span>0.81</span></div></div><div class="bar-value">1年後</div></div>
-          <div class="bar-row"><div class="bar-label">24ヶ月後</div><div class="bar-track"><div class="bar-fill" style="width:71%;background:#93c5fd;"><span>0.71</span></div></div><div class="bar-value">2年後</div></div>
-          <div class="bar-row"><div class="bar-label">36ヶ月後</div><div class="bar-track"><div class="bar-fill" style="width:65%;background:#bfdbfe;"><span>0.65</span></div></div><div class="bar-value">3年後</div></div>
-          <div class="bar-row"><div class="bar-label">維持期</div><div class="bar-track"><div class="bar-fill" style="width:35%;background:var(--gray-300);"><span>0.35</span></div></div><div class="bar-value">長期</div></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== Step 2: FC/SC分割 ===== -->
-    <section class="section" id="s2">
-      <div class="section-header">
-        <div class="section-num">2</div>
-        <h2>ファーストコール / セカンドコール 分割</h2>
-      </div>
-      <div class="section-desc">
-        ターゲット医師を「主訪問（FC：ファーストコール）」と「付随訪問（SC：セカンドコール）」に分割します。
-        SCはFC訪問に内包されるため、FTEコストは<strong>FCの10分の1</strong>として計上します。
-      </div>
-
-      <div class="grid-2">
-        <div class="card">
-          <div class="card-title">方式①：FC比率の明示指定（推奨）</div>
-          <p style="font-size:13px;color:var(--gray-500);margin-bottom:14px;">
-            <span class="mono">fc_sc_ratio.csv</span> に品目ごとのFC比率を設定します。
-            実績や戦略的判断に基づいて直接指定できる最もシンプルな方式です。
-          </p>
-          <div class="formula-box">
-            <div class="f-comment">// FC比率をCSVから直接読み込んで適用</div>
-            <div class="f-line"><span class="var">fc_doctors</span> <span class="op">= </span>round(total <span class="op">×</span> fc_ratio)</div>
-            <div class="f-line"><span class="var">sc_doctors</span> <span class="op">= </span>total <span class="op">-</span> fc_doctors</div>
-          </div>
-          <div class="badge badge-green" style="margin-top:8px;">デフォルトで優先適用</div>
-        </div>
-
-        <div class="card">
-          <div class="card-title">方式②：被り率ベース（フォールバック）</div>
-          <p style="font-size:13px;color:var(--gray-500);margin-bottom:14px;">
-            FC品目とSC品目のターゲット医師リストの重複割合（被り率）から、
-            SCとして訪問する医師数を自動計算します。
-          </p>
-          <div class="formula-box">
-            <div class="f-comment">// 医師IDリストの積集合から被り率を算出</div>
-            <div class="f-line"><span class="var">overlap_rate</span> <span class="op">= </span>|FC ∩ SC| <span class="op">/</span> |SC|</div>
-            <div class="f-line"><span class="var">sc_doctors</span> <span class="op">= </span>Σ(overlap_rate <span class="op">×</span> total)</div>
-            <div class="f-line"><span class="var">fc_doctors</span> <span class="op">= </span>total <span class="op">-</span> sc_doctors</div>
-          </div>
-          <div class="badge badge-gray" style="margin-top:8px;">fc_ratioが未設定の場合に適用</div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">FC/SC によるFTEコスト計算</div>
-        <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px;">
-          SC訪問はFC訪問と同じ医師への同一訪問機会に内包されるため、追加コストは<span class="highlight">FC の 10%</span>のみ計上します。
-        </p>
-        <div class="formula-box">
-          <div class="f-comment">// SC_COEFFICIENT = 0.1（セカンドコールのFTE換算係数）</div>
-          <div class="f-line">
-            <span class="var">required_calls</span>
-            <span class="op"> = </span>
-            <span class="var">fc_doctors</span> <span class="op">×</span> freq
-            <span class="op"> + </span>
-            <span class="var">sc_doctors</span> <span class="op">×</span> freq <span class="op">×</span> <span class="num">0.1</span>
-          </div>
-        </div>
-        <div class="note">
-          <div class="note-icon">💡</div>
-          <div>SC訪問のコスト係数 0.1 は「FCと同じ訪問機会の中でSCを実施するため、追加工数はほぼゼロだが無視もできない」という実態を反映した値です。この係数は設計上の判断として固定されています。</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== Step 3: 訪問頻度 ===== -->
-    <section class="section" id="s3">
-      <div class="section-header">
-        <div class="section-num">3</div>
-        <h2>訪問頻度の推定</h2>
-      </div>
-      <div class="section-desc">
-        医師1人あたり・月あたりの訪問頻度を推定します。
-        実績データをベースに、品目のライフサイクルフェーズ・競合状況・効能追加などの外部要因で補正します。
-      </div>
-
-      <div class="card">
-        <div class="card-title">3つの推定モード</div>
-        <div class="tbl-wrap">
-          <table>
-            <thead>
-              <tr><th>モード</th><th>ロジック</th><th>用途</th></tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><span class="badge badge-blue">actual</span></td>
-                <td>過去活動データの医師×月別コール数の平均値をそのまま使用</td>
-                <td>過去実績の再現・検証</td>
-              </tr>
-              <tr>
-                <td><span class="badge badge-green">lifecycle_adjusted</span></td>
-                <td>実績平均にライフサイクル補正係数を乗じて将来を推定</td>
-                <td><strong>デフォルト（将来予測に推奨）</strong></td>
-              </tr>
-              <tr>
-                <td><span class="badge badge-purple">mmm_optimal</span></td>
-                <td>MMMの施設別最適活動数テーブルから直接取得</td>
-                <td>MMM最適解との比較・分析</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">ライフサイクル補正係数（5フェーズモデル）</div>
-        <p style="font-size:13px;color:var(--gray-500);margin-bottom:20px;">
-          品目の発売からLOEまでを5つのフェーズに分け、各フェーズの戦略的重要性に応じて訪問頻度を連続的に補正します。
-        </p>
-        <div class="lifecycle">
-          <div class="lc-phase ph1">
-            <div class="ph-num">Phase 1</div>
-            <div class="ph-name">ローンチ期</div>
-            <div class="ph-period">発売〜18ヶ月</div>
-            <div class="ph-range">0.80→1.05</div>
-            <div class="ph-sub">医師啓発・処方獲得</div>
-          </div>
-          <div class="lc-phase ph2">
-            <div class="ph-num">Phase 2</div>
-            <div class="ph-name">成長期</div>
-            <div class="ph-period">18〜36ヶ月</div>
-            <div class="ph-range">1.05→1.00</div>
-            <div class="ph-sub">シェア拡大</div>
-          </div>
-          <div class="lc-phase ph3">
-            <div class="ph-num">Phase 3</div>
-            <div class="ph-name">成熟期</div>
-            <div class="ph-period">36ヶ月〜LOE36ヶ月前</div>
-            <div class="ph-range">1.00→0.80</div>
-            <div class="ph-sub">シェア維持・効率化</div>
-          </div>
-          <div class="lc-phase ph4">
-            <div class="ph-num">Phase 4</div>
-            <div class="ph-name">LOE直前</div>
-            <div class="ph-period">LOE36ヶ月前〜LOE</div>
-            <div class="ph-range">0.80→0.35</div>
-            <div class="ph-sub">縮小・移行準備</div>
-          </div>
-          <div class="lc-phase ph5">
-            <div class="ph-num">Phase 5</div>
-            <div class="ph-name">LOE後</div>
-            <div class="ph-period">LOE以降</div>
-            <div class="ph-range">0.00</div>
-            <div class="ph-sub">活動終了</div>
-          </div>
-        </div>
-
-        <div class="formula-box" style="margin-top:20px;">
-          <div class="f-comment">// 各フェーズの補正係数（連続補間）</div>
-          <div class="f-line"><span class="comment">// Phase 1: 0 ≤ elapsed < 18ヶ月</span></div>
-          <div class="f-line">coef <span class="op">= </span><span class="num">0.80</span> <span class="op">+</span> <span class="num">0.25</span> <span class="op">×</span> (elapsed <span class="op">/</span> <span class="num">18</span>)</div>
-          <div class="f-line"><span class="comment">// Phase 2: 18 ≤ elapsed < 36ヶ月</span></div>
-          <div class="f-line">coef <span class="op">= </span><span class="num">1.05</span> <span class="op">-</span> <span class="num">0.05</span> <span class="op">×</span> ((elapsed <span class="op">-</span> <span class="num">18</span>) <span class="op">/</span> <span class="num">18</span>)</div>
-          <div class="f-line"><span class="comment">// Phase 3: 成熟期（mature_end = LOE - 36ヶ月）</span></div>
-          <div class="f-line">coef <span class="op">= </span><span class="num">1.00</span> <span class="op">-</span> <span class="num">0.20</span> <span class="op">×</span> ((elapsed <span class="op">-</span> <span class="num">36</span>) <span class="op">/</span> (mature_end <span class="op">-</span> <span class="num">36</span>))</div>
-          <div class="f-line"><span class="comment">// Phase 4: LOE36ヶ月前から急減</span></div>
-          <div class="f-line">coef <span class="op">= </span><span class="num">0.35</span> <span class="op">+</span> <span class="num">0.45</span> <span class="op">×</span> (loe_remaining <span class="op">/</span> <span class="num">36</span>)</div>
-        </div>
-      </div>
-
-      <div class="grid-2">
-        <div class="card">
-          <div class="card-title">競合参入ブースト</div>
-          <p style="font-size:13px;color:var(--gray-500);margin-bottom:12px;">
-            競合品の発売に合わせて、防衛的な活動強化を一時的に上乗せします。
-          </p>
-          <div class="formula-box">
-            <div class="f-comment">// 競合発売後の経過月数に応じて線形減衰</div>
-            <div class="f-line">boost <span class="op">= </span><span class="num">1</span> <span class="op">+</span> (intensity <span class="op">-</span> <span class="num">1</span>)</div>
-            <div class="f-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="op">× </span>(<span class="num">1</span> <span class="op">-</span> elapsed <span class="op">/</span> boost_months)</div>
-          </div>
-          <div class="info-box" style="margin-top:12px;">
-            <div class="info-box-head">🔢 パラメータ例（competitor_schedule.csv）</div>
-            <div class="info-box-body" style="font-size:12px;">
-              <div>intensity = 1.25 → 最大 <strong>+25%</strong> のFTE増</div>
-              <div>boost_months = 18 → 18ヶ月かけて線形減衰</div>
-              <div style="margin-top:6px;color:var(--gray-500);">複数競合が重なる場合は最大値を採用</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-title">効能追加ブースト</div>
-          <p style="font-size:13px;color:var(--gray-500);margin-bottom:12px;">
-            新しい効能が追加承認された時点から、一時的な訪問頻度の増強を加算します。
-          </p>
-          <div class="formula-box">
-            <div class="f-comment">// 効能追加後の経過月数に応じて線形減衰</div>
-            <div class="f-line">boost <span class="op">= </span><span class="num">1</span> <span class="op">+</span> (ind_boost <span class="op">-</span> <span class="num">1</span>)</div>
-            <div class="f-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="op">× </span>(<span class="num">1</span> <span class="op">-</span> elapsed <span class="op">/</span> ind_boost_months)</div>
-          </div>
-          <div class="info-box" style="margin-top:12px;">
-            <div class="info-box-head">🔢 パラメータ例（products.csv）</div>
-            <div class="info-box-body" style="font-size:12px;">
-              <div>indication_fte_boost = 1.30 → 最大 <strong>+30%</strong></div>
-              <div>indication_boost_months = 6 → 6ヶ月で収束</div>
-              <div style="margin-top:6px;color:var(--gray-500);">indication_add_ym に効能追加月を設定</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== Step 4: MR/Digital比率 ===== -->
-    <section class="section" id="s4">
-      <div class="section-header">
-        <div class="section-num">4</div>
-        <h2>MR / デジタル活動比率の推定</h2>
-      </div>
-      <div class="section-desc">
-        品目ごとに、MRが訪問で実施する活動とデジタルチャネルが代替する活動の比率を、
-        <strong>MMMのHill関数（限界収益）</strong>と<strong>FTE規模</strong>の2つの観点から算出します。
-      </div>
-
-      <div class="card">
-        <div class="card-title">Hill関数による限界収益スコア</div>
-        <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px;">
-          Meridian（MMM）が推定するHill関数の微分値（＝追加1活動あたりの限界収益）を
-          MRとデジタルそれぞれで計算し、その比率をチャネル配分の基準とします。
-        </p>
-
-        <div class="formula-box">
-          <div class="f-comment">// Hill関数（売上応答曲線）</div>
-          <div class="f-line">R(a) <span class="op">= </span>β <span class="op">×</span> a<sup>slope</sup> <span class="op">/</span> (ec<sup>slope</sup> <span class="op">+</span> a<sup>slope</sup>)</div>
-          <br>
-          <div class="f-comment">// 限界収益（Hill関数の一次導関数）</div>
-          <div class="f-line">dR/da <span class="op">= </span>β <span class="op">×</span> slope <span class="op">×</span> ec<sup>slope</sup> <span class="op">×</span> a<sup>(slope-1)</sup></div>
-          <div class="f-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="op">÷ </span>(ec<sup>slope</sup> <span class="op">+</span> a<sup>slope</sup>)<sup>2</sup></div>
-          <br>
-          <div class="f-comment">// チャネル比率（MR vs Digital）</div>
-          <div class="f-line"><span class="var">mr_score</span> <span class="op">= </span>dR/da|<sub>MR</sub> <span class="op">× </span>β_MR <span class="op">× </span>ec_MR</div>
-          <div class="f-line"><span class="var">mr_ratio</span> <span class="op">= </span>mr_score <span class="op">/</span> (mr_score <span class="op">+</span> digital_score)</div>
-        </div>
-
-        <div class="tbl-wrap" style="margin-top:16px;">
-          <table>
-            <thead><tr><th>パラメータ</th><th>意味</th><th>値の傾向と影響</th></tr></thead>
-            <tbody>
-              <tr><td class="td-label">β（beta）</td><td>応答曲線のスケール係数</td><td>大きいほど当該チャネルの限界収益が高く、比率が上がる</td></tr>
-              <tr><td class="td-label">ec（EC50）</td><td>半最大効果到達活動量</td><td>小さいほど少ない活動で飽和 → 既に十分な場合は追加効果小</td></tr>
-              <tr><td class="td-label">slope</td><td>Hill係数（曲線の傾き）</td><td>>1でS字（急激な飽和）、=1で双曲線、<1で緩やかな飽和</td></tr>
-              <tr><td class="td-label">alpha</td><td>Adstock減衰率</td><td>効果の持越し期間。比率算出では使用しない（MMMの別パラメータ）</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">FTE規模によるMR比率の微調整（Pass 2）</div>
-        <p style="font-size:13px;color:var(--gray-500);margin-bottom:12px;">
-          Hill関数スコアで算出した比率に加え、品目の<strong>相対的なFTE規模</strong>でMR比率を補正します。
-          FTEが多い（重点品目）ほどMR比率を高く、少ない（サポート品目）ほど低く設定します。
-        </p>
-        <div class="formula-box">
-          <div class="f-comment">// エリア×月の全品目base_fteの平均を基準に相対化</div>
-          <div class="f-line">area_avg <span class="op">= </span>mean(base_fte) <span class="op">by </span>(area, month)</div>
-          <div class="f-line">relative <span class="op">= </span>base_fte <span class="op">/</span> area_avg</div>
-          <br>
-          <div class="f-comment">// 線形補正（mr_ratio_params.csv でチューニング可）</div>
-          <div class="f-line">mr_ratio <span class="op">= </span>clip(<span class="num">0.65</span> <span class="op">+</span> <span class="num">0.20</span> <span class="op">×</span> (relative <span class="op">-</span> <span class="num">1</span>),</div>
-          <div class="f-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="num">0.40</span>, <span class="num">0.90</span>)</div>
-        </div>
-        <div class="grid-2" style="margin-top:14px;">
-          <div style="background:var(--sky);border-radius:8px;padding:14px;">
-            <div style="font-size:12px;font-weight:700;color:#1d4ed8;margin-bottom:6px;">🔵 FTEが大きい品目（relative > 1）</div>
-            <div style="font-size:12px;color:#1e40af;">MR比率 UP（最大 90%）<br>重点品目として人的活動を厚く配分</div>
-          </div>
-          <div style="background:#fef9c3;border-radius:8px;padding:14px;">
-            <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:6px;">🟡 FTEが小さい品目（relative < 1）</div>
-            <div style="font-size:12px;color:#78350f;">MR比率 DOWN（最小 40%）<br>デジタルチャネルへのシフトを促進</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== Step 5: FTE算出 ===== -->
-    <section class="section" id="s5">
-      <div class="section-header">
-        <div class="section-num">5</div>
-        <h2>FTEの算出（コア計算）</h2>
-      </div>
-      <div class="section-desc">
-        ターゲット医師数・FC/SC分割・訪問頻度・MR比率を統合し、<strong>MR headcount（FTE）</strong>を算出します。
-        これが全計算の中核となるステップです。
-      </div>
-
-      <div class="card">
-        <div class="card-title">FTE計算の全数式</div>
-        <div class="formula-box">
-          <div class="f-comment">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Step A: 必要コール数（月間）
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</div>
-          <div class="f-line"><span class="var">required_calls</span></div>
-          <div class="f-line">&nbsp;&nbsp;<span class="op">= </span>fc_doctors <span class="op">×</span> visit_freq</div>
-          <div class="f-line">&nbsp;&nbsp;<span class="op">+ </span>sc_doctors <span class="op">×</span> visit_freq <span class="op">×</span> <span class="num">0.1</span></div>
-          <br>
-          <div class="f-comment">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Step B: base_fte（全チャネル合算の必要人員）
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</div>
-          <div class="f-line"><span class="var">base_fte</span></div>
-          <div class="f-line">&nbsp;&nbsp;<span class="op">= </span>required_calls</div>
-          <div class="f-line">&nbsp;&nbsp;<span class="op">÷ </span>(CALLS_PER_DAY[area] <span class="op">×</span> <span class="num">20</span>日)</div>
-          <div class="f-line">&nbsp;&nbsp;<span class="op">× </span>indication_boost <span class="op">×</span> competition_boost</div>
-          <br>
-          <div class="f-comment">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Step C: required_fte（MR headcount）
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</div>
-          <div class="f-line"><span class="var">required_fte</span> <span class="op">= </span>base_fte <span class="op">×</span> mr_ratio</div>
-          <div class="f-line"><span class="var">digital_fte</span>  <span class="op">= </span>base_fte <span class="op">×</span> digital_ratio <span class="comment">← 参考値</span></div>
-        </div>
-      </div>
-
-      <div class="steps">
-        <div class="step">
-          <div class="step-dot">A</div>
-          <div class="step-body">
-            <div class="step-title">必要コール数の計算</div>
-            <div class="step-text">FC医師への訪問数とSC医師への付随訪問（係数0.1）を合算して月間コール数を求めます。訪問頻度は Step 3 で推定した値を使用します。</div>
-          </div>
-        </div>
-        <div class="step">
-          <div class="step-dot">B</div>
-          <div class="step-body">
-            <div class="step-title">月間キャパシティで除してbase_FTEを計算</div>
-            <div class="step-text">CS領域：50コール/月（=2.5コール/日 × 20日）、PS領域：30コール/月で除算します。さらに効能追加ブーストと競合ブーストを乗じます。</div>
-          </div>
-        </div>
-        <div class="step">
-          <div class="step-dot">C</div>
-          <div class="step-body">
-            <div class="step-title">MR比率を掛けてrequired_FTEを確定</div>
-            <div class="step-text">Step 4 で算出したMR比率を乗算して、MR headcount（FTE）を求めます。デジタルFTE（参考値）は <span class="mono">1 - mr_ratio</span> で計算します。</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="note" style="margin-top:20px;">
-        <div class="note-icon">⚠️</div>
-        <div><strong>2パス方式による計算順序</strong>：MR比率の計算には「エリア×月別のbase_fte平均」が必要なため、全品目のbase_fteを計算してから（Pass 1）、MR比率を決定して最終FTEを算出する（Pass 2）という2段階で処理しています。</div>
-      </div>
-    </section>
-
-    <!-- ===== Step 6: 新発売品 ===== -->
-    <section class="section" id="s6">
-      <div class="section-header">
-        <div class="section-num">6</div>
-        <h2>新発売品へのFTE移動</h2>
-      </div>
-      <div class="section-desc">
-        MR総数は固定（CS=380名）のため、新発売品のFTEは既存品目から拠出する必要があります。
-        <strong>限界ROI（収益効率）の低い品目から優先的に削減</strong>し、リソースの最適な再配分を実現します。
-      </div>
-
-      <div class="card">
-        <div class="card-title">動的FTE移動のアルゴリズム</div>
-        <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px;">
-          新品目の成長（ランチカーブ）に比例して、ドナー品目から<strong>月別に段階的</strong>に削減します。
-          一括削減ではなく、新品目の実際の成長速度に合わせた自然な移行を表現します。
-        </p>
-        <div class="steps">
-          <div class="step">
-            <div class="step-dot" style="background:var(--green);">1</div>
-            <div class="step-body">
-              <div class="step-title">新品目のピーク時FTEを算出</div>
-              <div class="step-text">ランチカーブが最大（発売月）の時点のFTEをピーク値として決定します。このピーク値が「ドナー品目から移動が必要な最大量」になります。</div>
-            </div>
-          </div>
-          <div class="step">
-            <div class="step-dot" style="background:var(--green);">2</div>
-            <div class="step-body">
-              <div class="step-title">月別削減量の決定（ランチカーブに比例）</div>
-              <div class="step-text">
-                各月のドナー削減量 ＝ ピーク削減量 × （当月新品目FTE ÷ ピーク時FTE）
-              </div>
-              <div class="formula-box" style="margin-top:10px;">
-                <div class="f-line">reduction(t) <span class="op">= </span>peak_reduction <span class="op">×</span> (new_fte(t) <span class="op">/</span> peak_fte)</div>
-              </div>
-            </div>
-          </div>
-          <div class="step">
-            <div class="step-dot" style="background:var(--green);">3</div>
-            <div class="step-body">
-              <div class="step-title">ドナー品目への按分（限界ROI逆数按分）</div>
-              <div class="step-text">削減量をドナー品目に配分する際は、限界ROIが低い（投資効率が低い）品目から優先して削減します。現FTEの50%を下限として保護します。</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">限界ROI逆数按分の計算式</div>
-        <div class="formula-box">
-          <div class="f-comment">// 各ドナー品目の限界ROI（= dR/da at 現在の活動量）</div>
-          <div class="f-line"><span class="var">marginal_roi</span>[p] <span class="op">= </span>dR/da(current_mr_activity[p])</div>
-          <br>
-          <div class="f-comment">// ROIが低いほど多く削減（逆数で重みづけ）</div>
-          <div class="f-line"><span class="var">weight</span>[p] <span class="op">= </span>(1 / marginal_roi[p]) / Σ(1 / marginal_roi)</div>
-          <div class="f-line"><span class="var">reduction</span>[p] <span class="op">= </span>total_reduction <span class="op">×</span> weight[p]</div>
-          <br>
-          <div class="f-comment">// 下限制約（現FTEの50%以上を維持）</div>
-          <div class="f-line">new_fte[p] <span class="op">= </span>max(current_fte[p] <span class="op">-</span> reduction[p],</div>
-          <div class="f-line">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;current_fte[p] <span class="op">×</span> <span class="num">0.5</span>)</div>
-        </div>
-        <div class="note" style="margin-top:14px;">
-          <div class="note-icon">💡</div>
-          <div>min_fte_ratio = 0.5 の設定により、いかなる状況でも既存品目の現行FTEが半分以下に削られることはありません。製品サポートの最低水準を保護するための制約です。</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== Step 7: 正規化・離散化 ===== -->
-    <section class="section" id="s7">
-      <div class="section-header">
-        <div class="section-num">7</div>
-        <h2>正規化・離散化</h2>
-      </div>
-      <div class="section-desc">
-        算出したFTEを実際のMR人数計画として使える形に変換します。
-        まず月別エリア合計を現行MR数にスケーリングし（正規化）、
-        次に半期単位のステップ関数に変換（離散化）することで、
-        現実的で実行可能な計画値を生成します。
-      </div>
-
-      <div class="grid-2">
-        <div class="card">
-          <div class="card-title">①正規化：ヘッドカウント制約への適合</div>
-          <p style="font-size:13px;color:var(--gray-500);margin-bottom:12px;">
-            月別のエリア合計FTEが現行MR数（CS=380, PS=45）と一致するよう、
-            品目間の<strong>相対比を保ったまま</strong>スケーリングします。
-          </p>
-          <div class="formula-box">
-            <div class="f-comment">// エリア × 月ごとにスケール係数を計算</div>
-            <div class="f-line">scale <span class="op">= </span>target_headcount <span class="op">/</span> Σ(required_fte)</div>
-            <div class="f-line">adjusted_fte <span class="op">= </span>required_fte <span class="op">×</span> scale</div>
-          </div>
-          <div style="margin-top:12px;background:var(--sky);border-radius:8px;padding:12px;font-size:12px;color:#1e40af;">
-            ✓ CS全品目の月間FTE合計 → 常に380名<br>
-            ✓ PS全品目の月間FTE合計 → 常に45名<br>
-            ✓ 品目間の比率は保持される
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-title">②離散化：半期ステップ関数への変換</div>
-          <p style="font-size:13px;color:var(--gray-500);margin-bottom:12px;">
-            連続的な月次FTEを半期（H1: 4〜9月、H2: 10〜3月）の平均値に統一します。
-            人員計画の安定性を確保し、頻繁な配置換えを防ぎます。
-          </p>
-          <div class="formula-box">
-            <div class="f-comment">// 半期内の月次FTE平均 → 全月に適用</div>
-            <div class="f-line">half_avg <span class="op">= </span>mean(fte) <span class="op">by </span>(product, half)</div>
-            <div class="f-line">fte[half] <span class="op">= </span>half_avg <span class="comment">// 期内全月に同一値</span></div>
-            <div class="f-line"><span class="comment">// 再度ヘッドカウント正規化を適用</span></div>
-            <div class="f-line">→ normalize_fte_to_headcount()</div>
-          </div>
-          <div style="margin-top:12px;background:var(--green-light);border-radius:8px;padding:12px;font-size:12px;color:#065f46;">
-            ✓ 半期内のFTEは一定値（ステップ関数）<br>
-            ✓ 半期ごとに切り替えポイントあり<br>
-            ✓ 離散化後に再度正規化を適用
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">正規化前後のFTE比較イメージ</div>
-        <div style="display:flex;gap:20px;align-items:flex-start;margin-top:8px;">
-          <div style="flex:1;">
-            <div style="font-size:12px;font-weight:600;color:var(--gray-500);margin-bottom:8px;">正規化前（本来必要FTE）</div>
-            <div class="bar-chart">
-              <div class="bar-row"><div class="bar-label" style="font-size:11px;">GLI</div><div class="bar-track"><div class="bar-fill" style="width:80%;background:#d62728;"><span>320</span></div></div></div>
-              <div class="bar-row"><div class="bar-label" style="font-size:11px;">TRI</div><div class="bar-track"><div class="bar-fill" style="width:75%;background:#ff7f0e;"><span>300</span></div></div></div>
-              <div class="bar-row"><div class="bar-label" style="font-size:11px;">合計</div><div class="bar-track"><div class="bar-fill" style="width:100%;background:#333;"><span>400〜450</span></div></div></div>
-            </div>
-          </div>
-          <div style="display:flex;align-items:center;font-size:24px;color:var(--gray-300);padding-top:24px;">→</div>
-          <div style="flex:1;">
-            <div style="font-size:12px;font-weight:600;color:var(--gray-500);margin-bottom:8px;">正規化後（CS=380に制約）</div>
-            <div class="bar-chart">
-              <div class="bar-row"><div class="bar-label" style="font-size:11px;">GLI</div><div class="bar-track"><div class="bar-fill" style="width:67%;background:#d62728;"><span>268</span></div></div></div>
-              <div class="bar-row"><div class="bar-label" style="font-size:11px;">TRI</div><div class="bar-track"><div class="bar-fill" style="width:63%;background:#ff7f0e;"><span>253</span></div></div></div>
-              <div class="bar-row"><div class="bar-label" style="font-size:11px;">合計</div><div class="bar-track"><div class="bar-fill" style="width:95%;background:var(--green);"><span>380（固定）</span></div></div></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== Step 8: ROI最適FTE ===== -->
-    <section class="section" id="s8">
-      <div class="section-header">
-        <div class="section-num">8</div>
-        <h2>ROI最大化 最適FTE配分</h2>
-      </div>
-      <div class="section-desc">
-        シミュレーションFTEとは独立して、<strong>売上最大化を目的とした理論的な最適配分</strong>を算出します。
-        MMMのHill関数に基づく「等限界収益条件」を使い、全品目の限界収益が均等になるFTE配分を数値的に求めます。
-        この値とシミュレーションFTEの差がリソース再配分の余地を示します。
-      </div>
-
-      <div class="card">
-        <div class="card-title">等限界収益原理（経済学的背景）</div>
-        <div class="grid-2">
-          <div>
-            <p style="font-size:13px;color:var(--gray-500);margin-bottom:12px;">
-              限られたリソース（MR人員）を複数品目に配分する際、
-              <strong>各品目の追加1単位あたりの収益増加（限界収益）が等しくなる点</strong>で
-              全体の売上が最大化されます。
-            </p>
-            <div class="info-box">
-              <div class="info-box-head">⚖️ 直感的な説明</div>
-              <div class="info-box-body" style="font-size:12.5px;">
-                <div style="margin-bottom:6px;">品目Aの限界収益 &gt; 品目Bの限界収益 → Bの人員をAに移す</div>
-                <div style="margin-bottom:6px;">品目Aの限界収益 &lt; 品目Bの限界収益 → Aの人員をBに移す</div>
-                <div>品目AとBの限界収益が等しい → <strong>最適（これ以上の改善なし）</strong></div>
-              </div>
-            </div>
-          </div>
-          <div class="formula-box">
-            <div class="f-comment">// 最適条件（等限界収益）</div>
-            <div class="f-line">dR_A/da_A <span class="op">= </span>dR_B/da_B <span class="op">= </span>... <span class="op">= </span>λ*</div>
-            <br>
-            <div class="f-comment">// ヘッドカウント制約</div>
-            <div class="f-line">Σ(a_p <span class="op">/</span> capacity) <span class="op">= </span>budget</div>
-            <br>
-            <div class="f-comment">// λ*（均衡限界収益）を探索</div>
-            <div class="f-line"><span class="var">lam_star</span> <span class="op">= </span>binary_search(λ)</div>
-            <div class="f-line"><span class="var">a_opt</span>[p] <span class="op">= </span>solve(dR/da <span class="op">= </span>lam_star)</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">2段階バイナリサーチアルゴリズム</div>
-        <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px;">
-          均衡限界収益 λ* と各品目の最適活動量を、2層の数値探索で効率的に求めます。
-        </p>
-        <div class="steps">
-          <div class="step">
-            <div class="step-dot" style="background:var(--purple);">外</div>
-            <div class="step-body">
-              <div class="step-title">外側ループ：λ（均衡限界収益）のバイナリサーチ</div>
-              <div class="step-text">
-                λを仮定 → 全品目の最適活動量を計算 → 合計FTEとbudgetの差を確認 → λを調整。
-                log-scaleで200回反復し収束させます。
-              </div>
-              <div class="formula-box" style="margin-top:10px;">
-                <div class="f-line"><span class="comment">// total_fte(λ) > budget → λを上げる（活動量を絞る）</span></div>
-                <div class="f-line"><span class="comment">// total_fte(λ) &lt; budget → λを下げる（活動量を増やす）</span></div>
-              </div>
-            </div>
-          </div>
-          <div class="step">
-            <div class="step-dot" style="background:var(--purple);">内</div>
-            <div class="step-body">
-              <div class="step-title">内側ループ：品目ごとの最適活動量を探索</div>
-              <div class="step-text">
-                固定されたλに対し、dR/da = λ を満たす活動量を品目ごとにバイナリサーチ（100回反復）で求めます。
-                Hill係数が1以上のS字曲線の場合は変曲点を起点として収穫逓減域のみ探索します。
-              </div>
-            </div>
-          </div>
-          <div class="step">
-            <div class="step-dot" style="background:var(--purple);">変</div>
-            <div class="step-body">
-              <div class="step-title">活動量 → FTE変換と正規化</div>
-              <div class="step-text">
-                最適活動量を月間キャパシティで除してFTEに変換し、budgetに対する誤差補正のため最終スケーリングを行います。
-              </div>
-              <div class="formula-box" style="margin-top:10px;">
-                <div class="f-line">optimal_fte[p] <span class="op">= </span>a_opt[p] <span class="op">/</span> capacity</div>
-                <div class="f-line">scale <span class="op">= </span>budget <span class="op">/</span> Σ(optimal_fte)</div>
-                <div class="f-line">optimal_fte[p] <span class="op">*= </span>scale</div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="note" style="margin-top:16px;">
-          <div class="note-icon">📅</div>
-          <div>各FYの代表月として<strong>9月（Q2中月）</strong>を使用し、季節変動の影響を最小化しています。LOE後・未発売品目の最適FTEは0として扱います。</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== パラメータ一覧 ===== -->
-    <section class="section" id="params">
-      <div class="section-header">
-        <div class="section-num" style="background:var(--gray-500);">⚙</div>
-        <h2>主要パラメータ一覧</h2>
-      </div>
-
-      <div class="card">
-        <div class="card-title">システム固定パラメータ</div>
-        <div class="tbl-wrap">
-          <table>
-            <thead><tr><th>パラメータ名</th><th>値</th><th>単位</th><th>説明</th></tr></thead>
-            <tbody>
-              <tr><td class="td-label">WORKING_DAYS_PER_MONTH</td><td class="td-num">20</td><td>日</td><td>月間稼働日数（固定値）</td></tr>
-              <tr><td class="td-label">CALLS_PER_DAY[CS]</td><td class="td-num">2.5</td><td>コール/日</td><td>CS領域MRの1日最大訪問数</td></tr>
-              <tr><td class="td-label">CALLS_PER_DAY[PS]</td><td class="td-num">1.5</td><td>コール/日</td><td>PS領域MRの1日最大訪問数</td></tr>
-              <tr><td class="td-label">CURRENT_MR_COUNT[CS]</td><td class="td-num">380</td><td>人</td><td>現行CS MR数（正規化の目標値）</td></tr>
-              <tr><td class="td-label">CURRENT_MR_COUNT[PS]</td><td class="td-num">45</td><td>人</td><td>現行PS MR数（正規化の目標値）</td></tr>
-              <tr><td class="td-label">SC_COEFFICIENT</td><td class="td-num">0.1</td><td>係数</td><td>SCコールのFTEコスト（FC比）</td></tr>
-              <tr><td class="td-label">min_fte_ratio</td><td class="td-num">0.5</td><td>比率</td><td>新発売品FTE移動時のドナー下限</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="card" style="margin-top:20px;">
-        <div class="card-title">MR比率調整パラメータ（mr_ratio_params.csv）</div>
-        <div class="tbl-wrap">
-          <table>
-            <thead><tr><th>パラメータ</th><th>デフォルト値</th><th>意味</th><th>感度</th></tr></thead>
-            <tbody>
-              <tr><td class="td-label">base_mr_ratio</td><td class="td-num">0.65</td><td>全品目共通のMR基準比率</td><td>全体のMR/Digital配分に直接影響</td></tr>
-              <tr><td class="td-label">slope</td><td class="td-num">0.20</td><td>FTE相対値1単位あたりのMR比率変化</td><td>大きいほど品目間のMR比率差が広がる</td></tr>
-              <tr><td class="td-label">min_mr_ratio</td><td class="td-num">0.40</td><td>MR比率の下限</td><td>デジタル最大40%（MR最低60%）保護</td></tr>
-              <tr><td class="td-label">max_mr_ratio</td><td class="td-num">0.90</td><td>MR比率の上限</td><td>デジタル最低10%保護</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== 数式サマリー ===== -->
-    <section class="section" id="formulas">
-      <div class="section-header">
-        <div class="section-num" style="background:var(--navy);">∑</div>
-        <h2>全数式サマリー</h2>
-      </div>
-      <div class="section-desc">
-        FTEシミュレーションで使用する全計算式を一覧に整理します。
-      </div>
-
-      <div class="card">
-        <div class="formula-box">
-          <div class="f-comment">
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  【1】 必要コール数（月間）
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          </div>
-          <div class="f-line">required_calls = fc_doctors × freq  +  sc_doctors × freq × 0.1</div>
-
-          <div class="f-comment">
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  【2】 base_fte（ブースト込み）
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          </div>
-          <div class="f-line">base_fte = (required_calls / (CALLS_PER_DAY × 20)) × ind_boost × comp_boost</div>
-
-          <div class="f-comment">
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  【3】 FTEベースMR比率（Pass 2）
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          </div>
-          <div class="f-line">mr_ratio = clip(0.65 + 0.20 × (base_fte / area_avg − 1),  0.40, 0.90)</div>
-
-          <div class="f-comment">
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  【4】 MR headcount（最終FTE）
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          </div>
-          <div class="f-line">required_fte = base_fte × mr_ratio</div>
-          <div class="f-line">digital_fte  = base_fte × (1 − mr_ratio)   ← 参考値（MRには計上しない）</div>
-
-          <div class="f-comment">
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  【5】 Hill関数（MMMのチャネル応答モデル）
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          </div>
-          <div class="f-line">R(a)   = β × a^slope / (ec^slope + a^slope)</div>
-          <div class="f-line">dR/da  = β × slope × ec^slope × a^(slope−1) / (ec^slope + a^slope)^2</div>
-
-          <div class="f-comment">
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  【6】 ライフサイクル補正係数
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          </div>
-          <div class="f-line">Phase1（0〜18m）   : coef = 0.80 + 0.25 × (elapsed / 18)</div>
-          <div class="f-line">Phase2（18〜36m）  : coef = 1.05 − 0.05 × ((elapsed−18) / 18)</div>
-          <div class="f-line">Phase3（成熟期）   : coef = 1.00 − 0.20 × ((elapsed−36) / (mature_end−36))</div>
-          <div class="f-line">Phase4（LOE36m前） : coef = 0.35 + 0.45 × (loe_remaining / 36)</div>
-          <div class="f-line">Phase5（LOE後）    : coef = 0.00</div>
-
-          <div class="f-comment">
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  【7】 正規化（ヘッドカウント制約）
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          </div>
-          <div class="f-line">adjusted_fte = required_fte × (target_headcount / Σrequired_fte)  by (area, month)</div>
-
-          <div class="f-comment">
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  【8】 ROI最適FTE（等限界収益条件）
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          </div>
-          <div class="f-line">find λ* s.t. Σ a*(λ*) / capacity = budget</div>
-          <div class="f-line">where a*(λ*) = { a : dR/da(a) = λ* }  for each product</div>
-          <div class="f-line">optimal_fte[p] = a*(λ*)[p] / capacity × (budget / Σa*(λ*)/capacity)</div>
-        </div>
-      </div>
-    </section>
-
-  </div><!-- /content -->
+<main>
+  <div class="page-title">FTE算出ロジックドキュメント</div>
+  <div class="page-subtitle">FY2026&#8211;2035 MR FTEシミュレーション &#47; 現行システム設計仕様</div>
+
+  <!-- STEP 1 -->
+  <section id="step1">
+    <h2><span class="step-badge">STEP 1</span>ターゲット医師数</h2>
+    <h3>既存品目</h3>
+    <p><code>target_doctors.csv</code> から直読みする（過去活動データからの集計は廃止）。</p>
+
+    <h3>新製品</h3>
+    <p><code>mindscape_segments.csv</code> と <code>products.csv</code> の <code>mindscape_target_pct</code> 列を組み合わせて算出する。</p>
+    <ul class="logic-list">
+      <li>セグメント定義: (pct_from, pct_to, doctor_count) の行で構成</li>
+      <li>条件: pct_to &lt;= mindscape_target_pct のセグメントの doctor_count を合計</li>
+    </ul>
+    <div class="formula-box">例（top % &#8594; 医師数）:
+  OVE  (top 40%) &#8594; 1,100名
+  Zaso (top 20%) &#8594;   300名
+  WSA  (top 60%) &#8594; 1,190名
+  GLO  (top 40%) &#8594;   720名</div>
+
+    <h3>フォールバック（mindscape_segments未定義時）</h3>
+    <div class="formula-box">target_doctors = ref_product_doctors &#215; (患者数比) &#215; &#8730;(効能数比)</div>
+
+    <h3>ランプアップカーブ</h3>
+    <p>発売後月数に応じた浸透率を乗算し、市場導入期の段階的な医師到達を表現する。</p>
+  </section>
+
+  <!-- STEP 2 -->
+  <section id="step2">
+    <h2><span class="step-badge">STEP 2</span>FC / SC 分割</h2>
+    <ul class="logic-list">
+      <li><strong>FC（ファーストコール）</strong>: 主訪問品目</li>
+      <li><strong>SC（セカンドコール）</strong>: FC訪問に付随。FTEコスト = FC &#215; SC_COEFFICIENT（= 0.1）</li>
+    </ul>
+    <h3>SC &#8594; FC 格上げルール</h3>
+    <p>SC品目のうち、FC品目の医師リストと重複しない医師はSCとして活動できないため、FCに格上げする。</p>
+    <div class="formula-box">品目間被り率 = |FCリスト &#8745; SCリスト| / |SCリスト|</div>
+    <h3>実効FC比率</h3>
+    <ul class="logic-list">
+      <li>優先: <code>fc_sc_ratio.csv</code> で明示指定された値を使用</li>
+      <li>代替: 上記の被り率から自動計算</li>
+    </ul>
+  </section>
+
+  <!-- STEP 3 -->
+  <section id="step3">
+    <h2><span class="step-badge">STEP 3</span>訪問頻度推定</h2>
+    <ul class="logic-list">
+      <li><strong>FC</strong>: ライフサイクル調整済み訪問頻度（発売・LOE・競合ブーストを反映）</li>
+      <li><strong>SC</strong>: FC訪問に内包 &#8594; 追加コールなし（FTEコストのみ 0.1倍）</li>
+    </ul>
+    <p>競合品発売スケジュールは <code>competitor_schedule.csv</code> を参照してFTEブーストを算出する。</p>
+  </section>
+
+  <!-- STEP 4 -->
+  <section id="step4">
+    <h2><span class="step-badge">STEP 4</span>MR FTE算出（デジタル比率不使用）</h2>
+    <div class="formula-box">FTE = (FC医師数 &#215; FC訪問頻度 + SC医師数 &#215; SC_COEFFICIENT)
+    &#247; (稼働日[20日/月] &#215; コール/日)</div>
+    <table class="data-table" style="margin-top:14px;width:auto;">
+      <thead>
+        <tr><th>チーム</th><th>コール/日</th><th>HC上限</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>CS（一般MR）</td><td>2.5</td><td>380名</td></tr>
+        <tr><td>PS（専門MR）</td><td>1.5</td><td>45名</td></tr>
+      </tbody>
+    </table>
+    <div class="info-box">デジタルはFTE計算に影響しない。MR 380名CS / 45名PSはMR活動のみで決まる。</div>
+  </section>
+
+  <!-- STEP 5 -->
+  <section id="step5">
+    <h2><span class="step-badge">STEP 5</span>ヘッドカウント正規化</h2>
+    <ul class="logic-list">
+      <li>月次・領域別FTE合計を CS=380、PS=45 にスケーリング</li>
+      <li>品目間の相対比は保持される</li>
+      <li>半期（H1: 4&#8211;9月、H2: 10&#8211;3月）ごとにステップ関数化</li>
+    </ul>
+    <div class="formula-box">normalized_FTE_i = raw_FTE_i &#215; (HC_target / &#931;raw_FTE_all)</div>
+  </section>
+
+  <!-- STEP 6 -->
+  <section id="step6">
+    <h2><span class="step-badge">STEP 6</span>新発売品FTE配分</h2>
+    <ul class="logic-list">
+      <li><code>fy2026_apr_fte</code> = FY2026/4時点の実績FTE（削減上限として使用）</li>
+      <li>限界ROI = beta &#215; hill_marginal(x, ec, slope) が低い品目ほど優先的に削減</li>
+      <li>削減下限: fy2026_apr_fte &#215; 0.5（最低50%保護）</li>
+      <li>新品目の成長（ランチカーブ）に比例して月別段階的に移動</li>
+    </ul>
+    <div class="formula-box">限界ROI = beta &#215; hill_marginal(x, ec, slope)
+削減量_上限 = current_fte &#8722; max(fy2026_apr_fte &#215; 0.5, target_fte)</div>
+    <p>Hill関数パラメータ (beta, ec, slope) は <code>mmm_decay_params.csv</code> から参照する。</p>
+  </section>
+
+  <!-- Digital -->
+  <section id="digital">
+    <h2>別途分析: デジタル有効性スコア（FTEとは独立）</h2>
+    <p>品目ごとのデジタル戦略的価値を 0&#8211;1 でスコア化する。FTE算出には影響しない。</p>
+
+    <h3>スコア構成要素</h3>
+    <table class="data-table" style="margin-top:10px;">
+      <thead>
+        <tr><th>指標</th><th>重み</th><th>内容</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>MMM デジタル応答比</td>
+          <td>50%</td>
+          <td>dig_hill_value / (mr_hill_value + dig_hill_value)</td>
+        </tr>
+        <tr>
+          <td>SOC デジタル感受性</td>
+          <td>50%</td>
+          <td>digital_soc_rate（視聴1回あたりの想起確率）</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>ライフサイクル補正</h3>
+    <table class="data-table" style="margin-top:10px;">
+      <thead>
+        <tr><th>条件</th><th>補正値</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>LOE後</td><td>&#8722;25 pt</td></tr>
+        <tr><td>LOE まで &lt; 1年</td><td>&#8722;20 pt</td></tr>
+        <tr><td>LOE まで 1&#8211;3年</td><td>&#8722;10 pt</td></tr>
+        <tr><td>発売 &lt; 1年</td><td>&#8722;5 pt</td></tr>
+        <tr><td>成長期</td><td>+8 pt</td></tr>
+        <tr><td>成熟期</td><td>+5 pt</td></tr>
+      </tbody>
+    </table>
+
+    <h3>スコア判定</h3>
+    <table class="data-table" style="margin-top:10px;">
+      <thead>
+        <tr><th>スコア</th><th>判定</th><th>推奨アクション</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>&#8805; 55%</td><td>高</td><td>m3等デジタル積極活用</td></tr>
+        <tr><td>35&#8211;55%</td><td>中</td><td>選択的デジタル活用</td></tr>
+        <tr><td>&lt; 35%</td><td>低</td><td>MR中心維持</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Data files -->
+  <section id="datafiles">
+    <h2>データファイル一覧</h2>
+    <table class="data-table">
+      <thead>
+        <tr><th>ファイル名</th><th>用途</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>target_doctors.csv</td><td>既存品目のターゲット医師数（正値）</td></tr>
+        <tr><td>mindscape_segments.csv</td><td>product_id, pct_from, pct_to, doctor_count（新製品用）</td></tr>
+        <tr><td>products.csv</td><td>品目設定（mindscape_target_pct 列含む）</td></tr>
+        <tr><td>fc_sc_ratio.csv</td><td>FC比率明示指定</td></tr>
+        <tr><td>activity_set.csv</td><td>FC/SC品目セット</td></tr>
+        <tr><td>target_doctor_ranges.csv</td><td>医師IDレンジ（被り率計算用）</td></tr>
+        <tr><td>mmm_decay_params.csv</td><td>Hill関数パラメータ (beta, ec, slope)</td></tr>
+        <tr><td>current_fte.csv</td><td>FY2026/4時点実績FTE（fy2026_apr_fte）</td></tr>
+        <tr><td>soc_params.csv</td><td>品目別MR/デジタル想起率（SOCスコア用）</td></tr>
+        <tr><td>current_activities.csv</td><td>月次MR/デジタル活動量</td></tr>
+        <tr><td>competitor_schedule.csv</td><td>競合品発売スケジュール（FTEブースト）</td></tr>
+        <tr><td>supply_restriction.csv</td><td>供給制限スケジュール</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>
+    FTE算出システム &#47; 生成: 2026-03-31 14:02:40
+  </footer>
 </main>
-
-<footer>
-  FTEシミュレーション ロジック解説ドキュメント ／ FY2026〜FY2035対応版
-</footer>
-
-<script>
-  // アクティブリンクのハイライト
-  const links = document.querySelectorAll('.nav-link');
-  const sections = document.querySelectorAll('.section, #overview, #inputs');
-
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach(e => {
-      if (e.isIntersecting) {
-        const id = e.target.id;
-        links.forEach(l => l.classList.remove('active'));
-        const active = document.querySelector(`.nav-link[href="#${id}"]`);
-        if (active) active.classList.add('active');
-      }
-    });
-  }, { threshold: 0.3 });
-
-  document.querySelectorAll('[id]').forEach(el => observer.observe(el));
-</script>
 
 </body>
 </html>

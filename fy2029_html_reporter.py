@@ -1143,6 +1143,443 @@ def _kpi_card(label: str, value: str, sub: str = "") -> str:
     )
 
 
+def generate_logic_document(output_dir: str = "output") -> Path:
+    """FTE算出ロジックドキュメントを生成してHTMLファイルに書き出す。
+
+    Args:
+        output_dir: 出力先ディレクトリ（デフォルト: "output"）
+
+    Returns:
+        出力ファイルのPathオブジェクト
+    """
+    from datetime import datetime as _dt
+
+    generated_at = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    html = """<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FTE算出ロジックドキュメント (FY2026-2035)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", "Helvetica Neue", Arial, "Hiragino Sans", sans-serif;
+    background: #f4f6f9;
+    color: #1a1a2e;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* Sidebar */
+  nav#sidebar {
+    width: 240px;
+    min-width: 240px;
+    background: #0d1b2a;
+    color: #c9d6df;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 24px 0;
+    flex-shrink: 0;
+  }
+  nav#sidebar h1 {
+    font-size: 13px;
+    font-weight: 700;
+    color: #ffffff;
+    padding: 0 20px 16px 20px;
+    border-bottom: 1px solid #1e3a5f;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  nav#sidebar ul {
+    list-style: none;
+    padding: 12px 0;
+  }
+  nav#sidebar ul li a {
+    display: block;
+    padding: 9px 20px;
+    color: #94a3b8;
+    text-decoration: none;
+    font-size: 13px;
+    transition: background 0.15s, color 0.15s;
+    border-left: 3px solid transparent;
+  }
+  nav#sidebar ul li a:hover {
+    background: #1e3a5f;
+    color: #e2e8f0;
+    border-left-color: #3b82f6;
+  }
+  .nav-section {
+    display: block;
+    padding: 14px 20px 4px 20px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #4a6fa5;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  /* Main content */
+  main {
+    flex: 1;
+    padding: 40px 48px;
+    max-width: 960px;
+  }
+
+  .page-title {
+    font-size: 26px;
+    font-weight: 700;
+    color: #0d1b2a;
+    margin-bottom: 6px;
+  }
+  .page-subtitle {
+    font-size: 14px;
+    color: #64748b;
+    margin-bottom: 36px;
+  }
+
+  section {
+    background: #ffffff;
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+    padding: 28px 32px;
+    margin-bottom: 28px;
+  }
+  section h2 {
+    font-size: 18px;
+    font-weight: 700;
+    color: #0d1b2a;
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #3b82f6;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .step-badge {
+    background: #3b82f6;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 12px;
+    white-space: nowrap;
+  }
+
+  h3 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1e3a5f;
+    margin: 18px 0 8px 0;
+  }
+  p {
+    font-size: 14px;
+    line-height: 1.7;
+    color: #374151;
+    margin-bottom: 10px;
+  }
+  ul.logic-list {
+    list-style: none;
+    padding: 0;
+    margin-bottom: 12px;
+  }
+  ul.logic-list li {
+    font-size: 14px;
+    line-height: 1.7;
+    color: #374151;
+    padding: 4px 0 4px 18px;
+    position: relative;
+  }
+  ul.logic-list li::before {
+    content: "\25B8";
+    position: absolute;
+    left: 0;
+    color: #3b82f6;
+    font-size: 12px;
+  }
+
+  .formula-box {
+    background: #f0f4ff;
+    border: 1px solid #bfcfff;
+    border-left: 4px solid #3b82f6;
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin: 14px 0;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 13px;
+    color: #1e3a5f;
+    line-height: 1.8;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .info-box {
+    background: #ecfdf5;
+    border: 1px solid #6ee7b7;
+    border-left: 4px solid #10b981;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin: 12px 0;
+    font-size: 13px;
+    color: #064e3b;
+    line-height: 1.6;
+  }
+
+  table.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-top: 10px;
+  }
+  table.data-table thead th {
+    background: #0d1b2a;
+    color: #e2e8f0;
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+  }
+  table.data-table tbody tr:nth-child(odd) {
+    background: #f8fafc;
+  }
+  table.data-table tbody tr:nth-child(even) {
+    background: #ffffff;
+  }
+  table.data-table tbody td {
+    padding: 9px 14px;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: top;
+  }
+  table.data-table tbody td:first-child {
+    font-family: "Consolas", "Courier New", monospace;
+    color: #1e3a5f;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  footer {
+    margin-top: 40px;
+    padding: 16px 0;
+    font-size: 12px;
+    color: #94a3b8;
+    border-top: 1px solid #e2e8f0;
+  }
+</style>
+</head>
+<body>
+
+<nav id="sidebar">
+  <h1>FTE ロジック</h1>
+  <ul>
+    <li><span class="nav-section">ステップ</span></li>
+    <li><a href="#step1">STEP 1: ターゲット医師数</a></li>
+    <li><a href="#step2">STEP 2: FC/SC分割</a></li>
+    <li><a href="#step3">STEP 3: 訪問頻度推定</a></li>
+    <li><a href="#step4">STEP 4: MR FTE算出</a></li>
+    <li><a href="#step5">STEP 5: HC正規化</a></li>
+    <li><a href="#step6">STEP 6: 新発売品FTE配分</a></li>
+    <li><span class="nav-section">別途分析</span></li>
+    <li><a href="#digital">デジタル有効性スコア</a></li>
+    <li><span class="nav-section">参照</span></li>
+    <li><a href="#datafiles">データファイル一覧</a></li>
+  </ul>
+</nav>
+
+<main>
+  <div class="page-title">FTE算出ロジックドキュメント</div>
+  <div class="page-subtitle">FY2026&#8211;2035 MR FTEシミュレーション &#47; 現行システム設計仕様</div>
+
+  <!-- STEP 1 -->
+  <section id="step1">
+    <h2><span class="step-badge">STEP 1</span>ターゲット医師数</h2>
+    <h3>既存品目</h3>
+    <p><code>target_doctors.csv</code> から直読みする（過去活動データからの集計は廃止）。</p>
+
+    <h3>新製品</h3>
+    <p><code>mindscape_segments.csv</code> と <code>products.csv</code> の <code>mindscape_target_pct</code> 列を組み合わせて算出する。</p>
+    <ul class="logic-list">
+      <li>セグメント定義: (pct_from, pct_to, doctor_count) の行で構成</li>
+      <li>条件: pct_to &lt;= mindscape_target_pct のセグメントの doctor_count を合計</li>
+    </ul>
+    <div class="formula-box">例（top % &#8594; 医師数）:
+  OVE  (top 40%) &#8594; 1,100名
+  Zaso (top 20%) &#8594;   300名
+  WSA  (top 60%) &#8594; 1,190名
+  GLO  (top 40%) &#8594;   720名</div>
+
+    <h3>フォールバック（mindscape_segments未定義時）</h3>
+    <div class="formula-box">target_doctors = ref_product_doctors &#215; (患者数比) &#215; &#8730;(効能数比)</div>
+
+    <h3>ランプアップカーブ</h3>
+    <p>発売後月数に応じた浸透率を乗算し、市場導入期の段階的な医師到達を表現する。</p>
+  </section>
+
+  <!-- STEP 2 -->
+  <section id="step2">
+    <h2><span class="step-badge">STEP 2</span>FC / SC 分割</h2>
+    <ul class="logic-list">
+      <li><strong>FC（ファーストコール）</strong>: 主訪問品目</li>
+      <li><strong>SC（セカンドコール）</strong>: FC訪問に付随。FTEコスト = FC &#215; SC_COEFFICIENT（= 0.1）</li>
+    </ul>
+    <h3>SC &#8594; FC 格上げルール</h3>
+    <p>SC品目のうち、FC品目の医師リストと重複しない医師はSCとして活動できないため、FCに格上げする。</p>
+    <div class="formula-box">品目間被り率 = |FCリスト &#8745; SCリスト| / |SCリスト|</div>
+    <h3>実効FC比率</h3>
+    <ul class="logic-list">
+      <li>優先: <code>fc_sc_ratio.csv</code> で明示指定された値を使用</li>
+      <li>代替: 上記の被り率から自動計算</li>
+    </ul>
+  </section>
+
+  <!-- STEP 3 -->
+  <section id="step3">
+    <h2><span class="step-badge">STEP 3</span>訪問頻度推定</h2>
+    <ul class="logic-list">
+      <li><strong>FC</strong>: ライフサイクル調整済み訪問頻度（発売・LOE・競合ブーストを反映）</li>
+      <li><strong>SC</strong>: FC訪問に内包 &#8594; 追加コールなし（FTEコストのみ 0.1倍）</li>
+    </ul>
+    <p>競合品発売スケジュールは <code>competitor_schedule.csv</code> を参照してFTEブーストを算出する。</p>
+  </section>
+
+  <!-- STEP 4 -->
+  <section id="step4">
+    <h2><span class="step-badge">STEP 4</span>MR FTE算出（デジタル比率不使用）</h2>
+    <div class="formula-box">FTE = (FC医師数 &#215; FC訪問頻度 + SC医師数 &#215; SC_COEFFICIENT)
+    &#247; (稼働日[20日/月] &#215; コール/日)</div>
+    <table class="data-table" style="margin-top:14px;width:auto;">
+      <thead>
+        <tr><th>チーム</th><th>コール/日</th><th>HC上限</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>CS（一般MR）</td><td>2.5</td><td>380名</td></tr>
+        <tr><td>PS（専門MR）</td><td>1.5</td><td>45名</td></tr>
+      </tbody>
+    </table>
+    <div class="info-box">デジタルはFTE計算に影響しない。MR 380名CS / 45名PSはMR活動のみで決まる。</div>
+  </section>
+
+  <!-- STEP 5 -->
+  <section id="step5">
+    <h2><span class="step-badge">STEP 5</span>ヘッドカウント正規化</h2>
+    <ul class="logic-list">
+      <li>月次・領域別FTE合計を CS=380、PS=45 にスケーリング</li>
+      <li>品目間の相対比は保持される</li>
+      <li>半期（H1: 4&#8211;9月、H2: 10&#8211;3月）ごとにステップ関数化</li>
+    </ul>
+    <div class="formula-box">normalized_FTE_i = raw_FTE_i &#215; (HC_target / &#931;raw_FTE_all)</div>
+  </section>
+
+  <!-- STEP 6 -->
+  <section id="step6">
+    <h2><span class="step-badge">STEP 6</span>新発売品FTE配分</h2>
+    <ul class="logic-list">
+      <li><code>fy2026_apr_fte</code> = FY2026/4時点の実績FTE（削減上限として使用）</li>
+      <li>限界ROI = beta &#215; hill_marginal(x, ec, slope) が低い品目ほど優先的に削減</li>
+      <li>削減下限: fy2026_apr_fte &#215; 0.5（最低50%保護）</li>
+      <li>新品目の成長（ランチカーブ）に比例して月別段階的に移動</li>
+    </ul>
+    <div class="formula-box">限界ROI = beta &#215; hill_marginal(x, ec, slope)
+削減量_上限 = current_fte &#8722; max(fy2026_apr_fte &#215; 0.5, target_fte)</div>
+    <p>Hill関数パラメータ (beta, ec, slope) は <code>mmm_decay_params.csv</code> から参照する。</p>
+  </section>
+
+  <!-- Digital -->
+  <section id="digital">
+    <h2>別途分析: デジタル有効性スコア（FTEとは独立）</h2>
+    <p>品目ごとのデジタル戦略的価値を 0&#8211;1 でスコア化する。FTE算出には影響しない。</p>
+
+    <h3>スコア構成要素</h3>
+    <table class="data-table" style="margin-top:10px;">
+      <thead>
+        <tr><th>指標</th><th>重み</th><th>内容</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>MMM デジタル応答比</td>
+          <td>50%</td>
+          <td>dig_hill_value / (mr_hill_value + dig_hill_value)</td>
+        </tr>
+        <tr>
+          <td>SOC デジタル感受性</td>
+          <td>50%</td>
+          <td>digital_soc_rate（視聴1回あたりの想起確率）</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>ライフサイクル補正</h3>
+    <table class="data-table" style="margin-top:10px;">
+      <thead>
+        <tr><th>条件</th><th>補正値</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>LOE後</td><td>&#8722;25 pt</td></tr>
+        <tr><td>LOE まで &lt; 1年</td><td>&#8722;20 pt</td></tr>
+        <tr><td>LOE まで 1&#8211;3年</td><td>&#8722;10 pt</td></tr>
+        <tr><td>発売 &lt; 1年</td><td>&#8722;5 pt</td></tr>
+        <tr><td>成長期</td><td>+8 pt</td></tr>
+        <tr><td>成熟期</td><td>+5 pt</td></tr>
+      </tbody>
+    </table>
+
+    <h3>スコア判定</h3>
+    <table class="data-table" style="margin-top:10px;">
+      <thead>
+        <tr><th>スコア</th><th>判定</th><th>推奨アクション</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>&#8805; 55%</td><td>高</td><td>m3等デジタル積極活用</td></tr>
+        <tr><td>35&#8211;55%</td><td>中</td><td>選択的デジタル活用</td></tr>
+        <tr><td>&lt; 35%</td><td>低</td><td>MR中心維持</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Data files -->
+  <section id="datafiles">
+    <h2>データファイル一覧</h2>
+    <table class="data-table">
+      <thead>
+        <tr><th>ファイル名</th><th>用途</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>target_doctors.csv</td><td>既存品目のターゲット医師数（正値）</td></tr>
+        <tr><td>mindscape_segments.csv</td><td>product_id, pct_from, pct_to, doctor_count（新製品用）</td></tr>
+        <tr><td>products.csv</td><td>品目設定（mindscape_target_pct 列含む）</td></tr>
+        <tr><td>fc_sc_ratio.csv</td><td>FC比率明示指定</td></tr>
+        <tr><td>activity_set.csv</td><td>FC/SC品目セット</td></tr>
+        <tr><td>target_doctor_ranges.csv</td><td>医師IDレンジ（被り率計算用）</td></tr>
+        <tr><td>mmm_decay_params.csv</td><td>Hill関数パラメータ (beta, ec, slope)</td></tr>
+        <tr><td>current_fte.csv</td><td>FY2026/4時点実績FTE（fy2026_apr_fte）</td></tr>
+        <tr><td>soc_params.csv</td><td>品目別MR/デジタル想起率（SOCスコア用）</td></tr>
+        <tr><td>current_activities.csv</td><td>月次MR/デジタル活動量</td></tr>
+        <tr><td>competitor_schedule.csv</td><td>競合品発売スケジュール（FTEブースト）</td></tr>
+        <tr><td>supply_restriction.csv</td><td>供給制限スケジュール</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>
+    FTE算出システム &#47; 生成: GENERATED_AT_PLACEHOLDER
+  </footer>
+</main>
+
+</body>
+</html>"""
+
+    html = html.replace("GENERATED_AT_PLACEHOLDER", generated_at)
+
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "fte_logic_document.html"
+    out_path.write_text(html, encoding="utf-8")
+    print(f"[OK] ロジックドキュメント出力: {out_path.resolve()}")
+    return out_path
+
+
+
 class FY2029HTMLReporter:
     """
     FY2029 FTE算出結果をHTMLレポートとして出力するクラス。

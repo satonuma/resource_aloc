@@ -43,7 +43,7 @@ from fy2029_fte_calculator import (
     calculate_roi_optimal_fte,
     CURRENT_MR_COUNT,
 )
-from fy2029_html_reporter import FY2029HTMLReporter
+from fy2029_html_reporter import FY2029HTMLReporter, generate_logic_document
 from fy2029_sensitivity import FY2029SensitivityAnalyzer
 
 OUTPUT_DIR = Path(__file__).parent / "output"
@@ -661,6 +661,7 @@ def main():
         frequency_mode="lifecycle_adjusted",
         filename="fy2029_fte_report.html",
     )
+    generate_logic_document(str(OUTPUT_DIR))
 
     analyzer.export_sensitivity_html(
         results=sensitivity_results,
