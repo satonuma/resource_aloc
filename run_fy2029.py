@@ -111,6 +111,9 @@ def load_product_configs(
         post_loe_raw = row.get("post_loe_factor", 0.0)
         post_loe = 0.0 if (pd.isna(post_loe_raw) or str(post_loe_raw).strip() == "") else float(post_loe_raw)
 
+        mindscape_pct_raw = row.get("mindscape_target_pct", 0)
+        mindscape_pct = 0 if (pd.isna(mindscape_pct_raw) or str(mindscape_pct_raw).strip() == "") else int(float(mindscape_pct_raw))
+
         configs.append(ProductConfig(
             product_id            = row["product_id"].strip(),
             area                  = row["area"].strip(),
@@ -123,6 +126,7 @@ def load_product_configs(
             indication_fte_boost  = ind_boost,
             indication_boost_months = ind_months,
             post_loe_factor       = post_loe,
+            mindscape_target_pct  = mindscape_pct,
         ))
 
         ref = str(row.get("reference_product", "")).strip()
@@ -202,9 +206,19 @@ def load_data():
         for _, row in ca_df.iterrows()
     }
 
-    # ---- 現在のFTE ----
+    # ---- FY2026/4時点のFTE（シミュレーション開始時点の実績値） ----
     fte_df = pd.read_csv(BASE / "current_fte.csv")
-    current_fte = dict(zip(fte_df["product_id"], fte_df["current_fte"].astype(float)))
+    fy2026_apr_fte = dict(zip(fte_df["product_id"], fte_df["current_fte"].astype(float)))
+
+    # ---- ターゲット医師数（target_doctors.csv: 既存品目の正値） ----
+    td_df = pd.read_csv(BASE / "target_doctors.csv")
+    base_target_doctors: Dict[str, int] = dict(zip(td_df["product_id"], td_df["target_doctors"].astype(int)))
+
+    # ---- Doctor Mindscapeセグメントデータ（新製品ターゲット医師数算出用） ----
+    mindscape_path = BASE / "mindscape_segments.csv"
+    mindscape_segments_df = pd.read_csv(mindscape_path) if mindscape_path.exists() else pd.DataFrame()
+    if not mindscape_segments_df.empty:
+        print(f"       → mindscape_segments.csv: {len(mindscape_segments_df['product_id'].unique())} 品目のセグメントデータ読み込み")
 
     # ---- 売上予測・納入データ（将来分析用として保持）----
     sales_forecast = pd.read_csv(BASE / "sales_forecast.csv")
@@ -244,7 +258,9 @@ def load_data():
         activity_set_df    = activity_set_df,
         target_doctor_lists= target_doctor_lists,
         current_activities = current_activities,
-        current_fte        = current_fte,
+        fy2026_apr_fte       = fy2026_apr_fte,
+        base_target_doctors  = base_target_doctors,
+        mindscape_segments_df= mindscape_segments_df,
         sales_forecast     = sales_forecast,
         delivery_data      = delivery_data,
         fc_ratios          = fc_ratios,
@@ -307,21 +323,14 @@ def main():
     # ---- 3. モジュール初期化 ----
     print("[3/6] モジュール初期化...")
 
+    # 既存品目: target_doctors.csv の値を直接使用
+    # 新製品: mindscape_segments.csv + products.csv の mindscape_target_pct から算出
     target_doctor_calc = TargetDoctorCalculator(
-        activity_data=data["activity_data"],
-        doctor_attr=data["doctor_attr"],
-        product_info=data["product_info"],
+        base_target_doctors   = data["base_target_doctors"],
+        product_info          = data["product_info"],
+        mindscape_segments_df = data["mindscape_segments_df"],
+        activity_data         = data["activity_data"],   # フォールバック用
     )
-
-    # target_doctors.csv からターゲット医師数キャッシュを設定
-    # 新発売品（OVE）はキャッシュなし → _calculate_new_product が参照品から自動計算
-    td_df = pd.read_csv(Path(__file__).parent / "target_doctors.csv")
-    new_product_ids_set = {cfg.product_id for cfg in product_configs if cfg.is_new}
-    target_doctor_calc._base_target_cache = {
-        row["product_id"]: int(row["target_doctors"])
-        for _, row in td_df.iterrows()
-        if row["product_id"] not in new_product_ids_set
-    }
 
     fc_sc_allocator = FCScAllocator(
         activity_set_df=data["activity_set_df"],
@@ -517,12 +526,13 @@ def main():
 
     # 新品目: OVE（FY2026発売）、Zaso（FY2027発売）、WSA（FY2029発売）
     # FTE不足をドナー品目から補う
+    # fy2026_apr_fte = FY2026/4時点の実績FTE（ドナー品目の削減上限として使用）
     new_product_fte_allocator = NewProductFTEAllocator(
         decay_params_df=data["decay_params_df"],
-        current_fte=data["current_fte"],
+        current_fte=data["fy2026_apr_fte"],
         current_mr_activity={
             pid: data["current_activities"][pid]["MR"]
-            for pid in data["current_fte"]
+            for pid in data["fy2026_apr_fte"]
         },
         min_fte_ratio=0.5,
     )

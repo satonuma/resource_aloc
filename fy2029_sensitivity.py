@@ -57,10 +57,10 @@ class ScaledTargetDoctorCalculator(TargetDoctorCalculator):
         self._base = base_calc
         self.scale = scale
         # 親クラス属性を委譲
-        self.activity_data = base_calc.activity_data
-        self.doctor_attr   = base_calc.doctor_attr
-        self.product_info  = base_calc.product_info
-        self._base_target_cache = {}
+        self.activity_data       = base_calc.activity_data
+        self.product_info        = base_calc.product_info
+        self.base_target_doctors = base_calc.base_target_doctors
+        self.mindscape_segments_df = base_calc.mindscape_segments_df
 
     def calculate(self, product_id, months, config=None, ramp_up_curve=None,
                   reference_product_id=None):

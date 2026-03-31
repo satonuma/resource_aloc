@@ -338,6 +338,8 @@ class ProductConfig:
     indication_boost_months: int = 0          # ブースト持続月数
     # バイオシミラー浸食耐性パラメータ（省略可）
     post_loe_factor: float = 0.0  # LOE後に維持するライフサイクル係数（0.0=小分子完全停止, 0.55=バイオ品ENT等）
+    # Doctor Mindscapeターゲットパーセンタイル（新製品のみ。0=未設定 → 参照品推定）
+    mindscape_target_pct: int = 0  # 例: 40 → 処方量上位40%の医師を対象
 
 
 @dataclass
@@ -366,23 +368,29 @@ class TargetDoctorCalculator:
     """
     品目×月ごとのターゲット医師数を算出。
 
-    入力データ（DataFrameのカラム）:
-    - activity_data   : activity_ym, product_id, doctor_id, activity_type
-    - doctor_attr     : doctor_id, age
-    - product_info    : product_id, launch_ym, loe_months,
-                        estimated_patients, num_indications
+    データソース優先順位:
+    1. base_target_doctors（target_doctors.csv 直読み） ← 既存品目の正とする
+    2. mindscape_segments_df（Doctor Mindscape セグメントデータ） ← 新製品で使用
+    3. activity_data の直近12ヶ月集計（フォールバック）
+
+    引数:
+    - base_target_doctors   : {product_id: 医師数}  target_doctors.csv から読込
+    - mindscape_segments_df : product_id, pct_from, pct_to, doctor_count
+    - activity_data         : フォールバック用（既存品目でbase_target_doctorsにない場合）
+    - product_info          : product_id, launch_ym, loe_months, estimated_patients, num_indications
     """
 
     def __init__(
         self,
-        activity_data: pd.DataFrame,
-        doctor_attr: pd.DataFrame,
+        base_target_doctors: Dict[str, int],
         product_info: pd.DataFrame,
+        mindscape_segments_df: Optional[pd.DataFrame] = None,
+        activity_data: Optional[pd.DataFrame] = None,
     ) -> None:
-        self.activity_data = activity_data
-        self.doctor_attr = doctor_attr
+        self.base_target_doctors = base_target_doctors
         self.product_info = product_info
-        self._base_target_cache: Dict[str, int] = {}
+        self.mindscape_segments_df = mindscape_segments_df if mindscape_segments_df is not None else pd.DataFrame()
+        self.activity_data = activity_data if activity_data is not None else pd.DataFrame()
 
     # ----------------------------------------------------------
     # 既存品目用
@@ -390,15 +398,21 @@ class TargetDoctorCalculator:
 
     def get_base_target_doctors(self, product_id: str) -> int:
         """
-        過去の活動データから品目のターゲット医師数（ユニーク数）を取得。
-        直近12ヶ月の平均を使用。
-        """
-        if product_id in self._base_target_cache:
-            return self._base_target_cache[product_id]
+        品目のベースターゲット医師数を返す。
 
-        prod_acts = self.activity_data[
-            self.activity_data["product_id"] == product_id
-        ]
+        優先順位:
+        1. base_target_doctors（target_doctors.csv）
+        2. activity_data の直近12ヶ月ユニーク医師数（フォールバック）
+        """
+        if product_id in self.base_target_doctors:
+            return self.base_target_doctors[product_id]
+
+        # フォールバック: activity_data から集計
+        if self.activity_data.empty:
+            warnings.warn(f"{product_id}: target_doctors.csv にも活動データにもなし → 0")
+            return 0
+
+        prod_acts = self.activity_data[self.activity_data["product_id"] == product_id]
         if prod_acts.empty:
             warnings.warn(f"{product_id}: 活動データなし、ターゲット医師数=0")
             return 0
@@ -409,9 +423,7 @@ class TargetDoctorCalculator:
             .tail(12)
             .mean()
         )
-        result = int(round(monthly_unique))
-        self._base_target_cache[product_id] = result
-        return result
+        return int(round(monthly_unique))
 
     def calculate(
         self,
@@ -459,34 +471,46 @@ class TargetDoctorCalculator:
         reference_product_id: Optional[str],
     ) -> pd.DataFrame:
         """
-        新発売品ターゲット医師数の推計式:
+        新発売品ターゲット医師数の算出。
 
-          target(m) = base_ref
-                      × (新品目患者数 / 参照品患者数)
-                      × (新品目効能数 / 参照品効能数)^0.5
-                      × ramp_up_curve[発売後月数]
+        優先順位:
+        1. Doctor Mindscape セグメントデータ（config.mindscape_target_pct > 0 かつデータあり）
+           base = mindscape_segments の pct_to <= target_pct の doctor_count 合計
+        2. 参照品の医師数 × 患者数比 × 効能数補正（フォールバック）
         """
-        if reference_product_id is None:
-            # 参照品なし: 患者数から直接推定（患者の10%が対象医師と仮定）
-            base = int(config.estimated_patients * 0.10)
-        else:
-            ref_info = self.product_info[
-                self.product_info["product_id"] == reference_product_id
+        pid = config.product_id
+        base = 0
+
+        # ---- 1. Doctor Mindscape ----
+        if config.mindscape_target_pct > 0 and not self.mindscape_segments_df.empty:
+            seg = self.mindscape_segments_df[
+                self.mindscape_segments_df["product_id"] == pid
             ]
-            new_info = self.product_info[
-                self.product_info["product_id"] == config.product_id
-            ]
-            if ref_info.empty or new_info.empty:
+            if not seg.empty:
+                base = int(
+                    seg[seg["pct_to"] <= config.mindscape_target_pct]["doctor_count"].sum()
+                )
+                if base > 0:
+                    pass  # Mindscapeデータ使用
+                else:
+                    warnings.warn(f"{pid}: Mindscape target_pct={config.mindscape_target_pct} でセグメントが空 → 参照品推定に切替")
+
+        # ---- 2. 参照品推定（フォールバック）----
+        if base == 0:
+            if reference_product_id is None:
                 base = int(config.estimated_patients * 0.10)
             else:
-                ref = ref_info.iloc[0]
-                nw  = new_info.iloc[0]
-                ref_base = self.get_base_target_doctors(reference_product_id)
-                patient_ratio = nw["estimated_patients"] / max(ref["estimated_patients"], 1)
-                indication_adj = np.sqrt(
-                    nw["num_indications"] / max(ref["num_indications"], 1)
-                )
-                base = int(ref_base * patient_ratio * indication_adj)
+                ref_info = self.product_info[self.product_info["product_id"] == reference_product_id]
+                new_info = self.product_info[self.product_info["product_id"] == pid]
+                if ref_info.empty or new_info.empty:
+                    base = int(config.estimated_patients * 0.10)
+                else:
+                    ref = ref_info.iloc[0]
+                    nw  = new_info.iloc[0]
+                    ref_base = self.get_base_target_doctors(reference_product_id)
+                    patient_ratio = nw["estimated_patients"] / max(ref["estimated_patients"], 1)
+                    indication_adj = np.sqrt(nw["num_indications"] / max(ref["num_indications"], 1))
+                    base = int(ref_base * patient_ratio * indication_adj)
 
         records = []
         for month in months:
