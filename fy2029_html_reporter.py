@@ -44,23 +44,31 @@ PRODUCT_COLORS: Dict[str, str] = {
     "VYV": "#9467bd",   # 紫
     "VPR": "#7b2d8b",   # 深紫
     # NEW群 ── 黄/オリーブ系（CS新規発売品）
-    "Zaso": "#bcbd22",  # オリーブ黄
-    "WSA":  "#ffdd44",  # 明黄
-    # PS群 ── 茶/水色系
-    "LVM": "#8c564b",   # 茶
-    "TKZ": "#4393c3",   # スチールブルー
-    "RPL": "#92c5de",   # 薄水色
+    "Zaso":   "#bcbd22",  # オリーブ黄
+    "TAK881": "#ffdd44",  # 明黄（血漿分画 最新）
+    # PS遺伝群 ── 茶/緑系
+    "LVM":  "#8c564b",   # 茶
+    "TKZ":  "#4393c3",   # スチールブルー
+    "RPL":  "#92c5de",   # 薄水色
+    "FIR":  "#6b4226",   # 深茶
+    "Meza": "#d6a84e",   # ゴールド（PS遺伝 新発売品）
+    # PS血液群 ── サーモン/ピンク系
     "VON": "#f4a582",   # サーモン
+    "LIV": "#fa9fb5",   # 薄ピンク
+    "FEI": "#e31a1c",   # 赤
+    "ADV": "#c994c7",   # 薄紫
+    "ADY": "#91003f",   # 深ピンク
 }
 
 GROUP_COLORS = {
-    "PDT": "#1f77b4",
-    "NS":  "#d62728",
-    "OVE": "#e377c2",
-    "NEW": "#bcbd22",
-    "CV":  "#2ca02c",
-    "RS":  "#9467bd",
-    "PS":  "#8c564b",
+    "PDT":    "#1f77b4",
+    "NS":     "#d62728",
+    "OVE":   "#e377c2",
+    "NEW_CS": "#bcbd22",
+    "CV":    "#2ca02c",
+    "RS":    "#9467bd",
+    "PS遺伝": "#8c564b",
+    "PS血液": "#e6550d",
 }
 
 
@@ -390,14 +398,14 @@ def fig_digital_effectiveness(score_df: pd.DataFrame) -> go.Figure:
 
 def fig_per_launch_allocation(per_launch_allocations: Dict[str, pd.DataFrame]) -> go.Figure:
     """
-    新発売品ごとの発売時点FTE配分チャート（OVE/Zaso/WSA各々の発売時にどの品目から何FTE削減するか）。
+    新発売品ごとの発売時点FTE配分チャート（OVE/Zaso/TAK881各々の発売時にどの品目から何FTE削減するか）。
     サブプロット: 発売品ごとに水平バーチャート。
     """
-    products = [p for p in ["OVE", "Zaso", "WSA"] if p in per_launch_allocations]
+    products = [p for p in ["OVE", "Zaso", "TAK881"] if p in per_launch_allocations]
     if not products:
         return go.Figure()
 
-    launch_labels = {"OVE": "OVE（FY2026-07発売）", "Zaso": "Zaso（FY2027-04発売）", "WSA": "WSA（FY2029-04発売）"}
+    launch_labels = {"OVE": "OVE（FY2026-07発売）", "Zaso": "Zaso（FY2027-04発売）", "TAK881": "TAK881（FY2028-04発売）"}
 
     fig = make_subplots(
         rows=1, cols=len(products),
@@ -449,7 +457,7 @@ def fig_ove_allocation(allocation_df: pd.DataFrame) -> go.Figure:
     ))
 
     fig.update_layout(
-        title="新発売品（OVE/Zaso/WSA）に伴うFTE配分（どの品目から削るか）",
+        title="新発売品（OVE/Zaso/TAK881）に伴うFTE配分（どの品目から削るか）",
         xaxis_title="削減FTE（人）",
         height=320,
         template="plotly_white",
@@ -466,15 +474,15 @@ def fig_raw_fte_by_fy(raw_summary_fy: pd.DataFrame) -> go.Figure:
     from fy2029_fte_calculator import CURRENT_MR_COUNT
 
     fig = make_subplots(
-        rows=1, cols=2,
-        subplot_titles=("CS領域 本来必要FTE vs 現行MR数", "PS領域 本来必要FTE vs 現行MR数"),
-        horizontal_spacing=0.12,
+        rows=1, cols=3,
+        subplot_titles=("CS領域 本来必要FTE vs 現行MR数", "PS遺伝領域 本来必要FTE vs 現行MR数", "PS血液領域 本来必要FTE vs 現行MR数"),
+        horizontal_spacing=0.10,
     )
 
-    area_col = {"CS": 1, "PS": 2}
-    area_colors = {"CS": "#1f77b4", "PS": "#ff7f0e"}
+    area_col = {"CS": 1, "PS遺伝": 2, "PS血液": 3}
+    area_colors = {"CS": "#1f77b4", "PS遺伝": "#ff7f0e", "PS血液": "#2ca02c"}
 
-    for area in ["CS", "PS"]:
+    for area in ["CS", "PS遺伝", "PS血液"]:
         col = area_col[area]
         sub = raw_summary_fy[raw_summary_fy["area"] == area].sort_values("fiscal_year")
         if sub.empty:
@@ -518,11 +526,11 @@ def fig_raw_fte_by_fy(raw_summary_fy: pd.DataFrame) -> go.Figure:
 def fig_fte_vs_headcount(total_fte_df: pd.DataFrame) -> go.Figure:
     """領域別 合計FTE vs 現行MR数の月別比較"""
     fig = make_subplots(
-        rows=1, cols=2,
-        subplot_titles=("CS領域", "PS領域"),
+        rows=1, cols=3,
+        subplot_titles=("CS領域", "PS遺伝領域", "PS血液領域"),
     )
 
-    for col_idx, area in enumerate(["CS", "PS"], start=1):
+    for col_idx, area in enumerate(["CS", "PS遺伝", "PS血液"], start=1):
         sub = total_fte_df[total_fte_df["area"] == area].sort_values("month")
         if sub.empty:
             continue
@@ -633,9 +641,9 @@ def fig_fy_trend_area(total_fte_fy_df: pd.DataFrame) -> go.Figure:
     """
     fy_vals_area = sorted(total_fte_fy_df["fiscal_year"].unique()) if "fiscal_year" in total_fte_fy_df.columns else []
     area_fy_range = f"（{fy_vals_area[0]}〜{fy_vals_area[-1]}）" if fy_vals_area else ""
-    fig = make_subplots(rows=1, cols=2, subplot_titles=("CS領域", "PS領域"))
+    fig = make_subplots(rows=1, cols=3, subplot_titles=("CS領域", "PS遺伝領域", "PS血液領域"))
 
-    for col_idx, area in enumerate(["CS", "PS"], start=1):
+    for col_idx, area in enumerate(["CS", "PS遺伝", "PS血液"], start=1):
         sub = total_fte_fy_df[total_fte_fy_df["area"] == area].sort_values("fiscal_year")
         if sub.empty:
             continue
@@ -746,8 +754,9 @@ def fig_sim_vs_optimal(
         )
 
         area_styles = {
-            "CS": {"sim_color": "#1f77b4", "opt_color": "#aec7e8"},
-            "PS": {"sim_color": "#ff7f0e", "opt_color": "#ffbb78"},
+            "CS":     {"sim_color": "#1f77b4", "opt_color": "#aec7e8"},
+            "PS遺伝": {"sim_color": "#ff7f0e", "opt_color": "#ffbb78"},
+            "PS血液": {"sim_color": "#2ca02c", "opt_color": "#98df8a"},
         }
         for area, styles in area_styles.items():
             sim_sub = sim_area[sim_area["area"] == area].sort_values("fiscal_year")
@@ -1006,7 +1015,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:14px 16px;">
         <div style="font-size:11px;font-weight:700;letter-spacing:1px;opacity:0.7;margin-bottom:6px;">STEP 6</div>
         <div style="font-size:13px;font-weight:700;margin-bottom:4px;">新発売品への FTE 移動</div>
-        <div style="font-size:12px;opacity:0.82;">OVE / Zaso / WSA の必要FTEを、限界ROIの低い既存品目から比例配分で削出</div>
+        <div style="font-size:12px;opacity:0.82;">OVE / Zaso / TAK881 の必要FTEを、限界ROIの低い既存品目から比例配分で削出</div>
       </div>
       <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:14px 16px;">
         <div style="font-size:11px;font-weight:700;letter-spacing:1px;opacity:0.7;margin-bottom:6px;">STEP 7</div>
@@ -1081,7 +1090,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
   <!-- Section 4: 新品目 FTE 配分 -->
   <section>
-    <h2>⑥ 新発売品（OVE/Zaso/WSA）に伴うFTE配分</h2>
+    <h2>⑥ 新発売品（OVE/Zaso/TAK881）に伴うFTE配分</h2>
     <p style="font-size:13px;color:#666;margin-bottom:12px;">
       各新製品の発売時点で、どの既存品目から何FTEを移動するかを示す。限界ROI（収益効率）の低い品目から優先的に削減。
     </p>
@@ -1867,7 +1876,7 @@ MRチャネル: 面談/面談_アポ/説明会  デジタルチャネル: Web講
         <tr><td>4</td><td>INT</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
         <tr><td>5</td><td>TRI</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
         <tr><td>6</td><td>ENT</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
-        <tr><td>7</td><td>LIV</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>7</td><td>LIV</td><td><span class="tag tag-ps">PS血液</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
         <tr><td>8</td><td>REV</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
         <tr><td>9</td><td>ALC</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
         <tr><td>10</td><td>VYV</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
@@ -1875,11 +1884,17 @@ MRチャネル: 面談/面談_アポ/説明会  デジタルチャネル: Web講
         <tr><td>12</td><td>GLO</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-new">新発売品</span></td></tr>
         <tr><td>13</td><td>OVE</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-new">新発売品</span></td></tr>
         <tr><td>14</td><td>Zaso</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-new">新発売品</span></td></tr>
-        <tr><td>15</td><td>WSA</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-new">新発売品</span></td></tr>
-        <tr><td>16</td><td>LVM</td><td><span class="tag tag-ps">PS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
-        <tr><td>17</td><td>TKZ</td><td><span class="tag tag-ps">PS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
-        <tr><td>18</td><td>RPL</td><td><span class="tag tag-ps">PS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
-        <tr><td>19</td><td>VON</td><td><span class="tag tag-ps">PS</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>15</td><td>TAK881</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-new">新発売品</span></td></tr>
+        <tr><td>16</td><td>LVM</td><td><span class="tag tag-ps">PS遺伝</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>17</td><td>TKZ</td><td><span class="tag tag-ps">PS遺伝</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>18</td><td>RPL</td><td><span class="tag tag-ps">PS遺伝</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>19</td><td>FIR</td><td><span class="tag tag-ps">PS遺伝</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>20</td><td>Meza</td><td><span class="tag tag-ps">PS遺伝</span></td><td><span class="tag tag-new">新発売品</span></td></tr>
+        <tr><td>21</td><td>VON</td><td><span class="tag tag-ps">PS血液</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>22</td><td>LIV</td><td><span class="tag tag-ps">PS血液</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>23</td><td>FEI</td><td><span class="tag tag-ps">PS血液</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>24</td><td>ADV</td><td><span class="tag tag-ps">PS血液</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>25</td><td>ADY</td><td><span class="tag tag-ps">PS血液</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
       </tbody>
     </table>
   </div>
@@ -2660,25 +2675,28 @@ class FY2029HTMLReporter:
             return sub[fte_col].groupby(sub["month"]).sum().mean()
 
         total_fte_cs = _area_avg_fte("CS")
-        total_fte_ps = _area_avg_fte("PS")
+        total_fte_ps_iden = _area_avg_fte("PS遺伝")
+        total_fte_ps_chi = _area_avg_fte("PS血液")
         gap_cs = total_fte_cs - CURRENT_MR_COUNT["CS"]
-        gap_ps = total_fte_ps - CURRENT_MR_COUNT["PS"]
+        gap_ps_iden = total_fte_ps_iden - CURRENT_MR_COUNT["PS遺伝"]
+        gap_ps_chi = total_fte_ps_chi - CURRENT_MR_COUNT["PS血液"]
 
         n_products = fte_df["product_id"].nunique()
         _score_df = digital_score_df if digital_score_df is not None else pd.DataFrame()
         avg_digital_score = _score_df["digital_score"].mean() if not _score_df.empty else 0.0
 
         kpi_cards = "".join([
-            _kpi_card("算出品目数", str(n_products), "CS+PS"),
+            _kpi_card("算出品目数", str(n_products), "CS+PS遺伝+PS血液"),
             _kpi_card("CS 平均必要FTE", f"{total_fte_cs:.1f}", f"現行: {CURRENT_MR_COUNT['CS']}名"),
-            _kpi_card("PS 平均必要FTE", f"{total_fte_ps:.1f}", f"現行: {CURRENT_MR_COUNT['PS']}名"),
+            _kpi_card("PS遺伝 平均必要FTE", f"{total_fte_ps_iden:.1f}", f"現行: {CURRENT_MR_COUNT['PS遺伝']}名"),
+            _kpi_card("PS血液 平均必要FTE", f"{total_fte_ps_chi:.1f}", f"現行: {CURRENT_MR_COUNT['PS血液']}名"),
             _kpi_card(
                 "CS FTE過不足",
                 f"{gap_cs:+.1f}",
                 "プラス=不足 / マイナス=余剰",
             ),
             _kpi_card(
-                "PS FTE過不足",
+                "PS遺伝 FTE過不足",
                 f"{gap_ps:+.1f}",
                 "プラス=不足 / マイナス=余剰",
             ),
@@ -2848,7 +2866,7 @@ class FY2029HTMLReporter:
             table_soc_params=soc_table_html,
             table_detail=_df_to_html(detail_df, title="全品目×全月 詳細FTE"),
             current_cs=CURRENT_MR_COUNT["CS"],
-            current_ps=CURRENT_MR_COUNT["PS"],
+            current_ps_iden=CURRENT_MR_COUNT["PS遺伝"], current_ps_chi=CURRENT_MR_COUNT["PS血液"],
             target_fy=TARGET_FY,
             fy_range_display=fy_range_display,
         )

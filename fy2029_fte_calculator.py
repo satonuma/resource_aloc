@@ -5,12 +5,20 @@ FY2029 FTE算出モジュール
 MR/デジタル比率を品目×月別に算出する。
 
 対象期間: FY2029（2029年4月 〜 2030年3月）
-対象領域: CS（希少疾患以外, 2.5 call/day）/ PS（希少疾患, 1.5 call/day）
+対象領域:
+  CS    （希少疾患以外, 2.5 call/day, 380名）
+  PS遺伝（希少疾患・遺伝, 1.5 call/day,  25名）
+  PS血液（希少疾患・血液, 1.5 call/day,  40名）
 
 品目グループ（FY2029）:
-  PDT : GLI, CUV, HYQ
-  NS  : INT, TRI
-  OVE : OVE （FY2029新発売）
+  PDT    : GLI, CUV, HYQ, TAK881（血漿分画製剤）
+  NS     : INT, TRI, ENT
+  OVE    : OVE
+  NEW_CS : Zaso, TAK881（CS新規発売品）
+  CV     : REV, ALC
+  RS     : VYV, VPR
+  PS遺伝 : LVM, TKZ, RPL, FIR, Meza
+  PS血液 : VON, LIV, FEI, ADV, ADY
 
 FC/SC構造:
   - ファーストコール（FC）: 主訪問、フルFTEコスト
@@ -36,13 +44,15 @@ import pandas as pd
 WORKING_DAYS_PER_MONTH = 20
 
 CALLS_PER_DAY: Dict[str, float] = {
-    "CS": 2.5,
-    "PS": 1.5,
+    "CS":     2.5,
+    "PS遺伝": 1.5,
+    "PS血液": 1.5,
 }
 
 CURRENT_MR_COUNT: Dict[str, int] = {
-    "CS": 380,
-    "PS": 45,
+    "CS":     380,
+    "PS遺伝":  25,
+    "PS血液":  40,
 }
 
 # SC訪問はFC訪問に内包されるが、このコスト係数を乗じてFTEを計上
@@ -50,26 +60,31 @@ SC_COEFFICIENT = 0.1
 
 # 品目グループ（全製品）
 PRODUCT_GROUPS: Dict[str, List[str]] = {
-    "PDT": ["GLI", "CUV", "HYQ"],
-    "NS":  ["INT", "TRI", "ENT"],
-    "OVE": ["OVE"],
-    "NEW": ["Zaso", "WSA"],       # CS新規発売品
-    "CV":  ["LIV", "REV", "ALC"],
-    "RS":  ["VYV", "VPR"],
-    "PS":  ["LVM", "TKZ", "RPL", "VON"],
+    "PDT":    ["GLI", "CUV", "HYQ", "TAK881"],  # 血漿分画製剤
+    "NS":     ["INT", "TRI", "ENT"],
+    "OVE":   ["OVE"],
+    "NEW_CS": ["Zaso", "TAK881"],     # CS新規発売品
+    "CV":    ["REV", "ALC"],
+    "RS":    ["VYV", "VPR"],
+    "PS遺伝": ["LVM", "TKZ", "RPL", "FIR", "Meza"],
+    "PS血液": ["VON", "LIV", "FEI", "ADV", "ADY"],
 }
 
 # 品目→領域
 PRODUCT_AREA: Dict[str, str] = {
     # CS（希少疾患以外）
-    "GLI": "CS", "CUV": "CS", "HYQ": "CS",
+    "GLI": "CS", "CUV": "CS", "HYQ": "CS", "TAK881": "CS",
     "INT": "CS", "TRI": "CS", "ENT": "CS",
     "OVE": "CS",
-    "Zaso": "CS", "WSA": "CS",
-    "LIV": "CS", "REV": "CS", "ALC": "CS",
+    "Zaso": "CS",
+    "REV": "CS", "ALC": "CS",
     "VYV": "CS", "VPR": "CS",
-    # PS（希少疾患）
-    "LVM": "PS", "TKZ": "PS", "RPL": "PS", "VON": "PS",
+    # PS遺伝（希少疾患・遺伝）
+    "LVM": "PS遺伝", "TKZ": "PS遺伝", "RPL": "PS遺伝",
+    "FIR": "PS遺伝", "Meza": "PS遺伝",
+    # PS血液（希少疾患・血液）
+    "VON": "PS血液", "LIV": "PS血液", "FEI": "PS血液",
+    "ADV": "PS血液", "ADY": "PS血液",
 }
 
 # FY開始年 → 12ヶ月リストを生成するユーティリティ

@@ -3,9 +3,10 @@
 """
 FTE算出 メイン実行スクリプト（全品目・FY2026〜2035対応）
 =================================================================
-対象品目（13品目）:
-  CS: GLI, CUV, HYQ, INT, TRI, OVE, ENT, LIV, REV, ALC, VYV, VPR
-  PS: LVM（希少疾患）
+対象品目:
+  CS    : GLI, CUV, HYQ, INT, TRI, OVE, ENT, REV, ALC, VYV, VPR, TAK881, Zaso
+  PS遺伝: LVM, TKZ, RPL, FIR, Meza（希少疾患・遺伝）
+  PS血液: VON, LIV, FEI, ADV, ADY（希少疾患・血液）
 
 対象期間: FY2026〜FY2035（120ヶ月）
 OVE発売: FY2026（2026年7月想定）
@@ -549,8 +550,8 @@ def main():
         0.40, 0.40, 0.40, 0.40, 0.40, 0.40,   # 103〜108ヶ月
     ]
 
-    # WSAランチカーブ（FY2029-04発売, 84ヶ月 = FY2035末まで、参照品: LIV）
-    wsa_ramp_up = [
+    # TAK881ランチカーブ（FY2028-04発売, 96ヶ月 = FY2035末まで、参照品: HYQ）
+    tak881_ramp_up = [
         # --- 立ち上げ期（FY2029〜FY2031: 1〜30ヶ月）---
         1.00, 0.98, 0.96, 0.94, 0.92, 0.90,   # 1〜6ヶ月  (FY2029発売)
         0.88, 0.86, 0.84, 0.83, 0.82, 0.81,   # 7〜12ヶ月
@@ -582,7 +583,7 @@ def main():
         product_info=data["product_info"],
         frequency_mode="lifecycle_adjusted",
         new_product_ramp_up={
-            "OVE": ove_ramp_up, "Zaso": zaso_ramp_up, "WSA": wsa_ramp_up,
+            "OVE": ove_ramp_up, "Zaso": zaso_ramp_up, "TAK881": tak881_ramp_up,
             "GLO": glo_ramp_up,   # 供給制限代替品: FY2026のみ活動
         },
         reference_products=csv_reference_products,  # products.csvのreference_product列
@@ -595,7 +596,7 @@ def main():
     # ---- 4. FTE 算出（FY2026〜FY2029）----
     print("[4/6] FY2026〜FY2035 FTE算出...")
 
-    # 新品目: OVE（FY2026発売）、Zaso（FY2027発売）、WSA（FY2029発売）
+    # 新品目: OVE（FY2026発売）、Zaso（FY2027発売）、TAK881（FY2028発売）
     # FTE不足をドナー品目から補う
     # fy2026_apr_fte = FY2026/4時点の実績FTE（ドナー品目の削減上限として使用）
     new_product_fte_allocator = NewProductFTEAllocator(
@@ -605,11 +606,11 @@ def main():
         min_fte_ratio=0.5,
     )
 
-    # 動的FTE移動: 新品目（OVE/Zaso/WSA）の成長（ランチカーブ）に比例してドナー品目から段階的に削減
+    # 動的FTE移動: 新品目（OVE/Zaso/TAK881）の成長（ランチカーブ）に比例してドナー品目から段階的に削減
     fte_df, allocation_df = calculator.run_with_dynamic_new_product(
-        new_product_ids=["OVE", "Zaso", "WSA"],
+        new_product_ids=["OVE", "Zaso", "TAK881"],
         donor_products=["GLI", "CUV", "HYQ", "INT", "TRI", "ENT",
-                        "LIV", "REV", "ALC", "VYV", "VPR"],
+                        "REV", "ALC", "VYV", "VPR"],
         new_product_fte_allocator=new_product_fte_allocator,
     )
 
@@ -619,8 +620,8 @@ def main():
 
     # ⑥ 新発売品ごとの発売時点FTE配分（どの品目から何FTE取るか）
     fte_col_raw = "adjusted_fte" if "adjusted_fte" in raw_fte_df.columns else "required_fte"
-    new_product_launch_months = {"OVE": "2026-07", "Zaso": "2027-04", "WSA": "2029-04"}
-    all_cs_donors = ["GLI", "CUV", "HYQ", "INT", "TRI", "ENT", "LIV", "REV", "ALC", "VYV", "VPR"]
+    new_product_launch_months = {"OVE": "2026-07", "Zaso": "2027-04", "TAK881": "2028-04"}
+    all_cs_donors = ["GLI", "CUV", "HYQ", "INT", "TRI", "ENT", "REV", "ALC", "VYV", "VPR"]
     per_launch_allocations: Dict[str, pd.DataFrame] = {}
     for new_pid, launch_month in new_product_launch_months.items():
         month_df = raw_fte_df[raw_fte_df["month"] == launch_month]
@@ -690,7 +691,7 @@ def main():
     ).round(1)
     print(pivot.to_string())
 
-    print("\n  --- 新品目（OVE/Zaso/WSA）FTE配分先 ---")
+    print("\n  --- 新品目（OVE/Zaso/TAK881）FTE配分先 ---")
     print(allocation_df.to_string(index=False))
 
     print("\n  --- 領域×年度別 合計FTE vs 現行MR数 ---")
@@ -704,9 +705,9 @@ def main():
         mmm_freq_estimator=None,
     )
     sensitivity_results = analyzer.run_all_scenarios(
-        new_product_ids=["OVE", "Zaso", "WSA"],
+        new_product_ids=["OVE", "Zaso", "TAK881"],
         donor_products=["GLI", "CUV", "HYQ", "INT", "TRI", "ENT",
-                        "LIV", "REV", "ALC", "VYV", "VPR"],
+                        "REV", "ALC", "VYV", "VPR"],
         new_product_fte_allocator=new_product_fte_allocator,
     )
 

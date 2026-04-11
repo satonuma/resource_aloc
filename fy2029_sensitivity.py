@@ -404,7 +404,7 @@ class FY2029SensitivityAnalyzer:
         summary_df = self.summarize_scenarios(results)
 
         figs_html = ""
-        for area in ["CS", "PS"]:
+        for area in ["CS", "PS遺伝", "PS血液"]:
             figs_html += f"<h2>{area}領域 シナリオ比較</h2>"
             figs_html += self.fig_scenario_comparison(results, area).to_html(
                 full_html=False, include_plotlyjs=False
