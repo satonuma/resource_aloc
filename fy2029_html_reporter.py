@@ -58,6 +58,9 @@ PRODUCT_COLORS: Dict[str, str] = {
     "FEI": "#e31a1c",   # 赤
     "ADV": "#c994c7",   # 薄紫
     "ADY": "#91003f",   # 深ピンク
+    # FY2031/FY2033 新発売品
+    "SYN": "#3d9970",   # エメラルドグリーン（CS新規）
+    "KLR": "#ff69b4",   # ホットピンク（PS血液新規）
 }
 
 GROUP_COLORS = {
@@ -982,7 +985,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <section style="background:linear-gradient(135deg,#1a3560 0%,#2563eb 100%);color:#fff;border:none;">
     <h2 style="border-left-color:#93c5fd;color:#fff;">最適FTE推定ロジック ― このレポートの読み方</h2>
     <p style="font-size:13px;line-height:1.8;margin-bottom:18px;opacity:0.92;">
-      本システムは「CS {current_cs}名 / PS {current_ps}名」という固定ヘッドカウントの中で、
+      本システムは「CS {current_cs}名 / PS遺伝 {current_ps_iden}名 / PS血液 {current_ps_chi}名」という固定ヘッドカウントの中で、
       <strong>各品目への月別MR投入量（FTE）が最大売上を生むよう配分</strong>することを目的とします。<br>
       活動実績・品目属性・MMMパラメータを入力とし、以下の7ステップで最適FTEを算出します。
     </p>
@@ -1113,7 +1116,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
   <!-- Section 5: 現行MR数との比較 -->
   <section>
-    <h2>⑧ 必要FTE vs 現行MR数（{current_cs}名CS / {current_ps}名PS）</h2>
+    <h2>⑧ 必要FTE vs 現行MR数（{current_cs}名CS / {current_ps_iden}名PS遺伝 / {current_ps_chi}名PS血液）</h2>
     <div class="chart-full">{chart_headcount}</div>
     {table_headcount}
   </section>
@@ -1895,6 +1898,8 @@ MRチャネル: 面談/面談_アポ/説明会  デジタルチャネル: Web講
         <tr><td>23</td><td>FEI</td><td><span class="tag tag-ps">PS血液</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
         <tr><td>24</td><td>ADV</td><td><span class="tag tag-ps">PS血液</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
         <tr><td>25</td><td>ADY</td><td><span class="tag tag-ps">PS血液</span></td><td><span class="tag tag-existing">既存品</span></td></tr>
+        <tr><td>26</td><td>SYN</td><td><span class="tag tag-cs">CS</span></td><td><span class="tag tag-new">新発売品 (FY2031)</span></td></tr>
+        <tr><td>27</td><td>KLR</td><td><span class="tag tag-ps">PS血液</span></td><td><span class="tag tag-new">新発売品 (FY2033)</span></td></tr>
       </tbody>
     </table>
   </div>
@@ -2697,7 +2702,12 @@ class FY2029HTMLReporter:
             ),
             _kpi_card(
                 "PS遺伝 FTE過不足",
-                f"{gap_ps:+.1f}",
+                f"{gap_ps_iden:+.1f}",
+                "プラス=不足 / マイナス=余剰",
+            ),
+            _kpi_card(
+                "PS血液 FTE過不足",
+                f"{gap_ps_chi:+.1f}",
                 "プラス=不足 / マイナス=余剰",
             ),
             _kpi_card("平均デジタル有効性", f"{avg_digital_score*100:.0f}%", "全品目スコア平均"),

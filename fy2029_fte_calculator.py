@@ -124,6 +124,56 @@ def month_to_fy(month: str) -> str:
 FY2029_MONTHS: List[str] = get_fy_months(2029)
 
 
+def apply_product_fte_caps(
+    fte_df: pd.DataFrame,
+    fte_caps: Dict[str, float],
+) -> pd.DataFrame:
+    """
+    品目別FTE上限を適用し、超過分を同エリア内の非キャップ品目に比例再配分する。
+
+    Parameters
+    ----------
+    fte_df   : normalize_fte_to_headcount / discretize_fte_semiannually 出力
+    fte_caps : {product_id: max_fte} のdict（上限を設定する品目のみ）
+    """
+    if not fte_caps:
+        return fte_df
+
+    fte_col = "adjusted_fte" if "adjusted_fte" in fte_df.columns else "required_fte"
+    result = fte_df.copy()
+
+    for month in result["month"].unique():
+        for area in result["area"].unique():
+            mask = (result["month"] == month) & (result["area"] == area)
+            if not mask.any():
+                continue
+
+            idx = result[mask].index
+            excess = 0.0
+            for i in idx:
+                pid = result.at[i, "product_id"]
+                if pid in fte_caps:
+                    cap = fte_caps[pid]
+                    val = result.at[i, fte_col]
+                    if val > cap:
+                        excess += val - cap
+                        result.at[i, fte_col] = cap
+
+            if excess > 0:
+                uncapped_idx = [i for i in idx if result.at[i, "product_id"] not in fte_caps]
+                uncapped_total = result.loc[uncapped_idx, fte_col].sum()
+                if uncapped_total > 0:
+                    for i in uncapped_idx:
+                        result.at[i, fte_col] += excess * result.at[i, fte_col] / uncapped_total
+
+    result[fte_col] = result[fte_col].round(2)
+    result["adjusted_mr_fte"] = result[fte_col].round(2)
+    if fte_col != "adjusted_fte":
+        result["adjusted_fte"] = result[fte_col].round(2)
+
+    return result
+
+
 def normalize_fte_to_headcount(
     fte_df: pd.DataFrame,
     headcount_targets: Dict[str, int],
@@ -314,12 +364,31 @@ def calculate_roi_optimal_fte(
 
             # budgetに合わせて正規化（バイナリサーチの近似誤差を補正）
             scale = budget / total_opt if total_opt > 0 else 1.0
+            for pid in pid_fte:
+                pid_fte[pid] = pid_fte[pid] * scale
+
+            # max_fte キャップ: 上限超過分を非キャップ品目に比例再配分
+            cfg_map = {cfg.product_id: cfg for cfg in product_configs}
+            excess = 0.0
+            for pid in list(pid_fte):
+                cfg = cfg_map.get(pid)
+                if cfg and cfg.max_fte is not None and pid_fte[pid] > cfg.max_fte:
+                    excess += pid_fte[pid] - cfg.max_fte
+                    pid_fte[pid] = cfg.max_fte
+            if excess > 0:
+                uncapped = [pid for pid in pid_fte
+                            if not (cfg_map.get(pid) and cfg_map[pid].max_fte is not None)]
+                uncapped_total = sum(pid_fte[p] for p in uncapped)
+                if uncapped_total > 0:
+                    for pid in uncapped:
+                        pid_fte[pid] += excess * pid_fte[pid] / uncapped_total
+
             for pid, fte_opt in pid_fte.items():
                 rows.append({
                     "product_id":  pid,
                     "area":        area,
                     "fiscal_year": fy,
-                    "optimal_fte": round(fte_opt * scale, 2),
+                    "optimal_fte": round(fte_opt, 2),
                 })
 
             # LOE後/未発売品目は optimal_fte = 0
@@ -357,6 +426,8 @@ class ProductConfig:
     post_loe_factor: float = 0.0  # LOE後に維持するライフサイクル係数（0.0=小分子完全停止, 0.55=バイオ品ENT等）
     # Doctor Mindscapeターゲットパーセンタイル（新製品のみ。0=未設定 → 参照品推定）
     mindscape_target_pct: int = 0  # 例: 40 → 処方量上位40%の医師を対象
+    # FTE上限（省略可）: 設定時はこの値でキャップし余剰を他品目に再配分
+    max_fte: Optional[float] = None
 
 
 @dataclass

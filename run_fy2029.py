@@ -41,6 +41,7 @@ from fy2029_fte_calculator import (
     get_fy_months,
     normalize_fte_to_headcount,
     discretize_fte_semiannually,
+    apply_product_fte_caps,
     calculate_roi_optimal_fte,
     CURRENT_MR_COUNT,
 )
@@ -115,6 +116,9 @@ def load_product_configs(
         mindscape_pct_raw = row.get("mindscape_target_pct", 0)
         mindscape_pct = 0 if (pd.isna(mindscape_pct_raw) or str(mindscape_pct_raw).strip() == "") else int(float(mindscape_pct_raw))
 
+        max_fte_raw = row.get("max_fte", "")
+        max_fte = None if (pd.isna(max_fte_raw) or str(max_fte_raw).strip() == "") else float(max_fte_raw)
+
         configs.append(ProductConfig(
             product_id            = row["product_id"].strip(),
             area                  = row["area"].strip(),
@@ -128,6 +132,7 @@ def load_product_configs(
             indication_boost_months = ind_months,
             post_loe_factor       = post_loe,
             mindscape_target_pct  = mindscape_pct,
+            max_fte               = max_fte,
         ))
 
         ref = str(row.get("reference_product", "")).strip()
@@ -646,6 +651,11 @@ def main():
 
     # 月次FTEを半期（6ヶ月）ステップ関数に変換（離散的な計画値）
     fte_df = discretize_fte_semiannually(fte_df, CURRENT_MR_COUNT)
+
+    # 品目別FTE上限キャップ（products.csv の max_fte 列）
+    fte_caps = {cfg.product_id: cfg.max_fte for cfg in product_configs if cfg.max_fte is not None}
+    if fte_caps:
+        fte_df = apply_product_fte_caps(fte_df, fte_caps)
 
     # ROI最大化最適FTE算出（等限界収益配分）
     print("  ROI最適FTE算出中...")
