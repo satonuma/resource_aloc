@@ -167,6 +167,55 @@ def _load_editable_defaults() -> dict:
     )
 
 
+@st.cache_data(show_spinner=False)
+def _compute_doctor_overlap() -> Dict[Tuple[str, str], float]:
+    """
+    target_doctor_list.csv（RWリスト）から品目×RWティア別の「共有医師比率」を計算。
+
+    共有医師比率 = (他品目のターゲットリストにも載っている医師数) / (当品目の総ターゲット医師数)
+
+    返り値: {(product_id, "R"): shared_ratio, (product_id, "W"): shared_ratio}
+    """
+    p = INPUT_DIR / "target_doctor_list.csv"
+    if not p.exists():
+        return {}
+
+    df = pd.read_csv(p)
+    if df.empty or "doctor_id" not in df.columns or "product_id" not in df.columns:
+        return {}
+
+    rw_col = "rw_flag" if "rw_flag" in df.columns else None
+
+    # 全品目のユニーク医師セット（ティア問わず）
+    all_other: Dict[str, set] = {}
+    for pid in df["product_id"].unique():
+        all_other[pid] = set(df[df["product_id"] != pid]["doctor_id"])
+
+    result: Dict[Tuple[str, str], float] = {}
+    tiers = ["R", "W"] if rw_col else ["R"]
+
+    for pid in df["product_id"].unique():
+        for tier in tiers:
+            if rw_col:
+                own_docs = set(df[(df["product_id"] == pid) & (df[rw_col] == tier)]["doctor_id"])
+            else:
+                own_docs = set(df[df["product_id"] == pid]["doctor_id"])
+
+            if len(own_docs) == 0:
+                result[(pid, tier)] = 0.0
+                continue
+
+            shared_count = len(own_docs & all_other[pid])
+            result[(pid, tier)] = round(shared_count / len(own_docs), 4)
+
+    # rw_flag がない場合は R の値を W にもコピー
+    if not rw_col:
+        for pid in df["product_id"].unique():
+            result[(pid, "W")] = result.get((pid, "R"), 0.0)
+
+    return result
+
+
 # ── 訪問頻度 wide/long 変換ヘルパー ──────────────────────────────────────
 
 def _vf_to_wide(vf_df: pd.DataFrame, product_id: str) -> pd.DataFrame:
@@ -336,6 +385,8 @@ def run_calculation(
     headcount_targets       : Dict[str, int],
     competition_count_factor: float,
     competitor_yearly_df    : Optional[pd.DataFrame] = None,
+    overlap_discount        : float = 0.0,
+    doctor_overlap          : Optional[Dict[Tuple[str, str], float]] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Returns
@@ -405,6 +456,8 @@ def run_calculation(
         competitor_yearly        = _build_competitor_yearly(competitor_yearly_df)
                                    if competitor_yearly_df is not None
                                    else static["competitor_yearly"],
+        doctor_overlap           = doctor_overlap or {},
+        overlap_discount         = overlap_discount,
     )
 
     fte_df, _ = calculator.run_with_dynamic_new_product(
@@ -633,6 +686,35 @@ def main() -> None:
         )
         st.caption(f"2 品発売済み時: ×{1 + 2*cc_factor:.2f}  /  3 品: ×{1 + 3*cc_factor:.2f}")
 
+        st.subheader("医師重複ディスカウント")
+        doctor_overlap = _compute_doctor_overlap()
+        overlap_available = len(doctor_overlap) > 0
+        if not overlap_available:
+            st.caption("⚠️ target_doctor_list.csv が見つかりません。割引は無効です。")
+            overlap_discount = 0.0
+        else:
+            overlap_discount = st.slider(
+                "共有医師の SC 転換率",
+                min_value=0.0, max_value=1.0, value=0.0, step=0.05,
+                format="%.2f",
+                help="他品目と共有している医師のうち、FC 訪問に乗じて SC（軽いコール）で\n"
+                     "対応できる割合。\n"
+                     "ユニーク医師は必ず独自 FC 訪問が必要（フルカウント）。\n"
+                     "共有医師もFCは存在（新製品は投資優先）するが、\n"
+                     "他品目の FC 訪問に SC タグオンできる分だけ FTE を効率化する。\n"
+                     "FTE効率化 = shared_ratio × SC転換率 × (1 − SC係数0.1)\n"
+                     "例: 共有80%, 転換率0.3 → FTE × (1 − 0.8×0.3×0.9) ≈ −21.6%",
+            )
+            if overlap_discount > 0:
+                # 簡易サマリ表示（重複率が高い代表品目）
+                sample_pids = sorted({pid for pid, _ in doctor_overlap.keys()})[:5]
+                lines = []
+                for pid in sample_pids:
+                    rr = doctor_overlap.get((pid, "R"), 0.0)
+                    ww = doctor_overlap.get((pid, "W"), 0.0)
+                    lines.append(f"{pid}: R={rr:.0%} / W={ww:.0%}")
+                st.caption("共有率サンプル（上位5品目）\n" + "  \n".join(lines))
+
         st.divider()
 
         run_btn = st.button("🔄 計算実行", type="primary", use_container_width=True)
@@ -649,12 +731,13 @@ def main() -> None:
             st.rerun()
 
     # ── パラメータ編集タブ ────────────────────────────────────────────────
-    tab_td, tab_vf, tab_comp, tab_comp_yr, tab_prod = st.tabs([
+    tab_td, tab_vf, tab_comp, tab_comp_yr, tab_prod, tab_overlap = st.tabs([
         "🩺 ターゲット医師数",
         "📅 訪問頻度（年度別）",
         "⚔️ 競合品スケジュール",
         "📊 直接競合数（年度別）",
         "🔬 品目設定",
+        "🔗 医師重複分析",
     ])
 
     # -------- Tab 1: ターゲット医師数 ----------------------------------------
@@ -898,6 +981,87 @@ def main() -> None:
                 prod_full[col] = edited_prod_disp[col].values
         st.session_state.prod_df = prod_full
 
+    # -------- Tab 6: 医師重複分析 -------------------------------------------
+    with tab_overlap:
+        st.markdown("### 医師重複分析（target_doctor_list.csv）")
+        st.caption(
+            "RW リスト上で他品目のターゲット医師と重複している比率を品目×ティア別に表示。  \n"
+            "**共有医師**: 他品目との FC 訪問に乗じて SC（軽いコール）で対応できる医師。  \n"
+            "**ユニーク医師**: 他品目と被っていないため必ず独自 FC 訪問が必要。"
+        )
+
+        if not overlap_available:
+            st.warning(
+                "target_doctor_list.csv が `data/input/` に見つかりません。  \n"
+                "列: `product_id, rw_flag, doctor_id` を含む CSV を配置してください。",
+                icon="⚠️",
+            )
+        else:
+            # 品目×ティア の共有率テーブルを構築
+            rows_ov = []
+            for (pid, tier), ratio in sorted(doctor_overlap.items()):
+                rows_ov.append({
+                    "品目 ID": pid,
+                    "ティア": tier,
+                    "共有率": ratio,
+                    "ユニーク率": round(1.0 - ratio, 4),
+                })
+            ov_df = pd.DataFrame(rows_ov)
+
+            if not ov_df.empty:
+                # R と W を横並びにして見やすく
+                ov_wide = (
+                    ov_df.pivot_table(index="品目 ID", columns="ティア", values="共有率")
+                    .reset_index()
+                    .rename(columns={"R": "R 共有率", "W": "W 共有率"})
+                )
+                ov_wide = ov_wide.sort_values("R 共有率", ascending=False).reset_index(drop=True)
+
+                col_cfg_ov = {
+                    "品目 ID": st.column_config.TextColumn("品目 ID", width="small"),
+                    "R 共有率": st.column_config.ProgressColumn(
+                        "R 共有率", min_value=0.0, max_value=1.0, format="%.0%",
+                    ),
+                    "W 共有率": st.column_config.ProgressColumn(
+                        "W 共有率", min_value=0.0, max_value=1.0, format="%.0%",
+                    ),
+                }
+                st.dataframe(ov_wide, column_config=col_cfg_ov,
+                             use_container_width=True, hide_index=True)
+
+                st.markdown("---")
+                st.markdown("**現在の SC 転換率設定でのFTE効率化プレビュー**")
+                st.caption(
+                    f"SC 転換率 = {overlap_discount:.0%}  |  "
+                    "効率化 = shared_ratio × SC転換率 × (1 − 0.1)"
+                )
+                if overlap_discount > 0:
+                    prev_rows = []
+                    for _, row in ov_wide.iterrows():
+                        pid = row["品目 ID"]
+                        r_s = row.get("R 共有率", 0.0) or 0.0
+                        w_s = row.get("W 共有率", 0.0) or 0.0
+                        # 簡易: R/W 等重み平均
+                        avg_shared = (r_s + w_s) / 2.0
+                        factor = 1.0 - avg_shared * overlap_discount * 0.9
+                        prev_rows.append({
+                            "品目 ID": pid,
+                            "平均共有率": round(avg_shared, 3),
+                            "FTE 係数": round(factor, 3),
+                            "FTE 削減率": round(1.0 - factor, 3),
+                        })
+                    prev_df = pd.DataFrame(prev_rows).sort_values("FTE 削減率", ascending=False)
+                    col_cfg_prev = {
+                        "FTE 係数":   st.column_config.ProgressColumn(
+                            "FTE 係数", min_value=0.0, max_value=1.0, format="%.3f"),
+                        "FTE 削減率": st.column_config.ProgressColumn(
+                            "FTE 削減率", min_value=0.0, max_value=0.5, format="%.1%"),
+                    }
+                    st.dataframe(prev_df, column_config=col_cfg_prev,
+                                 use_container_width=True, hide_index=True)
+                else:
+                    st.info("サイドバーで「共有医師の SC 転換率」を 0 より大きくするとプレビューが表示されます。")
+
     st.divider()
 
     # ── 計算実行 ─────────────────────────────────────────────────────────
@@ -912,6 +1076,8 @@ def main() -> None:
                     headcount_targets       = headcount_targets,
                     competition_count_factor= cc_factor,
                     competitor_yearly_df    = st.session_state.comp_yr_df,
+                    overlap_discount        = overlap_discount,
+                    doctor_overlap          = doctor_overlap,
                 )
                 st.session_state.results = {
                     "raw":    raw_s,

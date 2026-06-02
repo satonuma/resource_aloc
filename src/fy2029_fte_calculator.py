@@ -1696,6 +1696,14 @@ class FY2029FTECalculator:
         competitor_yearly: Optional[Dict[Tuple[str, str], int]] = None,
         # {(product_id, "FY2027"): n_direct_competitors}
         # 効能効果が同じ直接競合品の年度別数。n > 0 なら FTE に count_boost を乗算する。
+        doctor_overlap: Optional[Dict[Tuple[str, str], float]] = None,
+        # {(product_id, "R"): shared_ratio, (product_id, "W"): shared_ratio}
+        # shared_ratio = 他品目リストと重複する医師の割合（0.0〜1.0）
+        # target_doctor_list.csv（RWリスト）から算出する。
+        overlap_discount: float = 0.0,
+        # 重複医師に対する FTE 削減率（0.0=割引なし, 1.0=重複分を完全削除）
+        # ユニーク医師（他品目と重複なし）は常にフルカウント。
+        # 例: shared_ratio=0.8, discount=0.3 → FTE × (1 - 0.8 × 0.3) = × 0.76
     ) -> None:
         self.configs = {p.product_id: p for p in product_configs}
         self.target_doctor_calc = target_doctor_calc
@@ -1711,6 +1719,8 @@ class FY2029FTECalculator:
         self.supply_restrictions = supply_restrictions or {}
         self.working_days_map = working_days_map or {}
         self.competitor_yearly: Dict[Tuple[str, str], int] = competitor_yearly or {}
+        self.doctor_overlap: Dict[Tuple[str, str], float] = doctor_overlap or {}
+        self.overlap_discount: float = overlap_discount
 
     @property
     def target_months(self) -> List[str]:
@@ -1860,6 +1870,7 @@ class FY2029FTECalculator:
                     ratio = total_target / total_base if total_base > 0 else 1.0
                     r_docs = int(round(tier["r_doctors"] * ratio))
                     w_docs = total_target - r_docs
+
                     # visit_freq.csv の目標頻度×達成率で実効頻度を決定
                     r_eff, r_tgt, r_ach = self.target_doctor_calc.get_visit_freq(pid, month, "R")
                     w_eff, w_tgt, w_ach = self.target_doctor_calc.get_visit_freq(pid, month, "W")
@@ -1896,7 +1907,29 @@ class FY2029FTECalculator:
                 comp_boost = self._competition_boost(pid, month)
                 # 供給制限ファクター（例: GLI FY2026 供給不足 → 0.65倍）
                 supply_factor = self._supply_restriction_factor(pid, month)
-                base_fte *= boost * comp_boost * supply_factor
+
+                # ---- 医師重複オーバーラップ SC 効率化ファクター ----
+                # RWリスト（target_doctor_list.csv）上で他品目と共有している医師は、
+                # 他品目のFC訪問に乗じて SC（軽いコール）対応できる余地がある。
+                # ユニーク医師（重複なし）は必ず独自のFCコストが必要。
+                #
+                # overlap_factor = 1 - weighted_shared × discount × (1 - SC_COEFFICIENT)
+                #   weighted_shared : 医師数加重平均の重複比率
+                #   discount        : 重複医師のうち SC 化できる割合（0=SC化なし、1=全てSC化）
+                #   SC_COEFFICIENT  : SC訪問のFTEコスト比率（= 0.1）
+                # 例) shared=80%, discount=0.3 → factor = 1 - 0.8×0.3×0.9 = 0.784（21.6%削減）
+                overlap_factor = 1.0
+                if self.overlap_discount > 0.0 and self.doctor_overlap:
+                    r_shared = self.doctor_overlap.get((pid, "R"), 0.0)
+                    w_shared = self.doctor_overlap.get((pid, "W"), 0.0)
+                    _total_docs = r_docs + w_docs
+                    if _total_docs > 0:
+                        weighted_shared = (r_docs * r_shared + w_docs * w_shared) / _total_docs
+                    else:
+                        weighted_shared = (r_shared + w_shared) / 2.0
+                    overlap_factor = max(0.0, 1.0 - weighted_shared * self.overlap_discount * (1.0 - SC_COEFFICIENT))
+
+                base_fte *= boost * comp_boost * supply_factor * overlap_factor
 
                 pass1_records.append({
                     "product_id":        pid,
@@ -1914,6 +1947,7 @@ class FY2029FTECalculator:
                     "fc_weight":         round(fc_weight, 3),
                     "visit_frequency":   round(eff_freq, 3),
                     "required_calls":    round(required_calls, 1),
+                    "overlap_factor":    round(overlap_factor, 4),
                     "base_fte":          base_fte,
                 })
 
