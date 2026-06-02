@@ -2,11 +2,34 @@
 __pycache__/
 *.py[cod]
 *.pyo
+*.pyd
 venv/
 .venv/
 *.egg-info/
+dist/
+build/
 
 # IDE / Claude
 .claude/
 .vscode/
+.idea/
 *.ipynb_checkpoints/
+*.swp
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# 大容量データ（MMM解析用ローデータ・再現可能）
+data/input/activity_data.csv
+data/input/delivery_data.csv
+data/input/digital_act.csv
+data/input/target_doctor_list.csv
+data/input/current_activities.csv
+
+# アウトプット（再生成可能）
+data/output/
+output/
+
+# ログ
+*.log

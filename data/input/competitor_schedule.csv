@@ -1,0 +1,16 @@
+product_id,competitor_name,launch_ym,intensity,boost_months
+TRI,競合品_TRI_A,2027-04,1.3,12
+TRI,競合品_TRI_B,2029-01,1.25,12
+ENT,競合品_ENT_A,2028-07,1.3,18
+ENT,競合品_ENT_B,2030-04,1.2,12
+LIV,競合品_LIV_A,2027-10,1.25,12
+REV,競合品_REV_A,2028-04,1.2,12
+ALC,競合品_ALC_A,2027-04,1.25,12
+VYV,競合品_VYV_A,2028-07,1.3,18
+VPR,競合品_VPR_A,2027-10,1.2,12
+Zaso,競合品_Zaso_A,2030-04,1.2,12
+Meza,競合品_WSA_A,2031-04,1.15,12
+LVM,競合品_LVM_A,2028-01,1.2,12
+TKZ,競合品_TKZ_A,2027-07,1.25,12
+RPL,競合品_RPL_A,2028-10,1.2,12
+VON,競合品_VON_A,2028-04,1.15,12

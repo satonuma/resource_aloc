@@ -1,0 +1,18 @@
+product_id,fiscal_year,fc_ratio,note
+INT,default,0,TRI訪問のSC100%（独立訪問なし）
+GLI,FY2027,0,HYQ First移行によりSC化（FY27〜）
+GLI,FY2028,0,HYQ First継続のためSC維持（FY28）
+GLO,FY2027,0,HYQ First移行によりSC化（FY27〜）
+GLO,FY2028,0,HYQ First継続のためSC維持（FY28）
+CUV,FY2026,0,HYQ皮下製剤台頭によりCUVはSC化（FY26〜）
+CUV,FY2027,0,HYQ First継続でCUVはSC維持（FY27）
+CUV,FY2028,0,TAK881移行期もCUVはSC維持（FY28・LOE前）
+HYQ,FY2028,0,GLI_GLO後退によりSC化（FY28〜）
+ALC,FY2030,0.5,LOE後SC比率増加
+ALC,FY2031,0.2,LOE後さらにSC化
+OBI,default,0.5,FEIとセット訪問（50%SC）
+FEI,default,0.5,OBIとセット訪問（50%SC）
+TKZ,default,0.7,VPRとセット訪問（HAE・30%SC）
+VPR,default,0.3,TKZとセット訪問（HAE・70%SC）
+ADY,default,0.95,ADVとセット訪問（5%SC）
+ADV,default,0.05,ADYとセット訪問（95%SC）

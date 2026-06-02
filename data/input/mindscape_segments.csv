@@ -1,0 +1,16 @@
+product_id,pct_from,pct_to,doctor_count
+OVE,0,20,500
+OVE,20,40,600
+OVE,40,60,1300
+OVE,60,80,2000
+OVE,80,100,4200
+Zaso,0,20,300
+Zaso,20,40,345
+Zaso,40,60,800
+Zaso,60,80,1200
+Zaso,80,100,2500
+Meza,0,20,250
+Meza,20,40,290
+Meza,40,60,650
+Meza,60,80,1000
+Meza,80,100,2100
