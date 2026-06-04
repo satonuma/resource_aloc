@@ -1,0 +1,9 @@
+﻿activity_type,cost_coefficient,description
+solo_fc,1.0,単独FC（主訪問・フルコスト）
+solo_sc,0.15,単独SC（副訪問・FC訪問に便乗。主品目の訪問で軽くコール）
+solo_spc,0.7,単独SPC（スペシャルティコール・専門的な詳細説明）
+solo_other,0.3,単独Other（その他単独活動）
+nonsolo_fc,0.8,非単独FC（同行主訪問・一部時間がコーチングに）
+nonsolo_sc,0.1,非単独SC（同行副訪問・最もコスト低）
+nonsolo_spc,0.5,非単独SPC（同行スペシャルティコール）
+nonsolo_other,0.2,非単独Other（同行その他活動）

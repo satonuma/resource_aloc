@@ -114,6 +114,14 @@ def month_to_fy(month: str) -> str:
     return f"FY{fy}"
 
 
+def month_to_half(month: str) -> str:
+    """年月文字列を半期文字列に変換 (例: "2026-05" → "FY2026-H1", "2026-11" → "FY2026-H2")"""
+    dt = _parse_ym(month)
+    fy = dt.year if dt.month >= 4 else dt.year - 1
+    h  = 1 if 4 <= dt.month <= 9 else 2
+    return f"FY{fy}-H{h}"
+
+
 # FY2029の月リスト（後方互換のため保持）
 FY2029_MONTHS: List[str] = get_fy_months(2029)
 
@@ -1704,6 +1712,11 @@ class FY2029FTECalculator:
         # 重複医師に対する FTE 削減率（0.0=割引なし, 1.0=重複分を完全削除）
         # ユニーク医師（他品目と重複なし）は常にフルカウント。
         # 例: shared_ratio=0.8, discount=0.3 → FTE × (1 - 0.8 × 0.3) = × 0.76
+        activity_weight_map: Optional[Dict[Tuple[str, str], float]] = None,
+        # {(product_id, "FY2026-H1"): effective_weight, ...}
+        # activity_breakdown.csv + activity_cost_coeff.csv から算出した半期別実効FTE重み。
+        # 設定時は fc_sc_ratio.csv 由来の fc_weight をこの値で上書きする。
+        # 未設定 or 対象半期にデータなし → fc_weight にフォールバック。
     ) -> None:
         self.configs = {p.product_id: p for p in product_configs}
         self.target_doctor_calc = target_doctor_calc
@@ -1721,6 +1734,7 @@ class FY2029FTECalculator:
         self.competitor_yearly: Dict[Tuple[str, str], int] = competitor_yearly or {}
         self.doctor_overlap: Dict[Tuple[str, str], float] = doctor_overlap or {}
         self.overlap_discount: float = overlap_discount
+        self.activity_weight_map: Dict[Tuple[str, str], float] = activity_weight_map or {}
 
     @property
     def target_months(self) -> List[str]:
@@ -1861,6 +1875,17 @@ class FY2029FTECalculator:
                 # 同一医師に対してTRIはFC・INTはSCという形で活動する
                 fc_weight = self.fc_sc_allocator.get_fc_weight(pid, month=month)
                 fc_ratio  = self.fc_sc_allocator.get_fc_ratio(pid, month=month)
+
+                # ---- 活動構造ベース実効重み上書き ----
+                # activity_breakdown.csv + activity_cost_coeff.csv から算出した半期別実効重みが
+                # 存在する場合は fc_sc_ratio.csv 由来の fc_weight をそれで上書きする。
+                # 実効重み = Σ(活動タイプ率 × FTEコスト係数)
+                # 例: 単独FC=1.0, 単独SC=0.15, 非単独FC=0.8, 非単独SC=0.1 を比率で加重平均
+                _half = month_to_half(month)
+                if self.activity_weight_map:
+                    _aw = self.activity_weight_map.get((pid, _half))
+                    if _aw is not None:
+                        fc_weight = _aw
 
                 # ---- R/W 医師ティアによる required_calls 計算 ----
                 tier = self.target_doctor_calc.get_doctor_tier(pid, month=month)

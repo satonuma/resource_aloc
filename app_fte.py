@@ -34,6 +34,7 @@ from fy2029_fte_calculator import (  # noqa: E402
     apply_product_fte_caps,
     discretize_fte_semiannually,
     get_fy_months,
+    month_to_half,
     normalize_fte_roi_weighted,
 )
 
@@ -159,11 +160,13 @@ def _load_editable_defaults() -> dict:
         return pd.read_csv(p) if p.exists() else pd.DataFrame()
 
     return dict(
-        target_doctors    = _read("target_doctors.csv"),
-        products          = _read("products.csv"),
-        competitors       = _read("competitor_schedule.csv"),
-        visit_freq        = _read("visit_freq.csv"),
-        competitor_yearly = _read("competitor_yearly.csv"),
+        target_doctors      = _read("target_doctors.csv"),
+        products            = _read("products.csv"),
+        competitors         = _read("competitor_schedule.csv"),
+        visit_freq          = _read("visit_freq.csv"),
+        competitor_yearly   = _read("competitor_yearly.csv"),
+        activity_breakdown  = _read("activity_breakdown.csv"),
+        activity_cost_coeff = _read("activity_cost_coeff.csv"),
     )
 
 
@@ -212,6 +215,60 @@ def _compute_doctor_overlap() -> Dict[Tuple[str, str], float]:
     if not rw_col:
         for pid in df["product_id"].unique():
             result[(pid, "W")] = result.get((pid, "R"), 0.0)
+
+    return result
+
+
+_ACTIVITY_RATE_COLS = [
+    "solo_fc", "solo_sc", "solo_spc", "solo_other",
+    "nonsolo_fc", "nonsolo_sc", "nonsolo_spc", "nonsolo_other",
+]
+
+# 全半期（FY2024-H1 〜 FY2035-H2）
+_ALL_HALF_PERIODS = [
+    f"FY{fy}-H{h}" for fy in range(2024, 2036) for h in (1, 2)
+]
+
+
+def _compute_activity_weights(
+    breakdown_df: pd.DataFrame,
+    coeff_df: pd.DataFrame,
+) -> Dict[Tuple[str, str], float]:
+    """
+    activity_breakdown.csv × activity_cost_coeff.csv から
+    品目×半期の実効FTE重みを計算する。
+
+    実効重み = Σ(活動タイプ比率 × FTEコスト係数)
+
+    FY2026-H1 以降は最終実績値を保持（forward-fill）して
+    FY2035-H2 まで全半期をカバーする dict を返す。
+    """
+    if breakdown_df.empty or coeff_df.empty:
+        return {}
+
+    # コスト係数 dict
+    coeff: Dict[str, float] = {}
+    for _, row in coeff_df.iterrows():
+        coeff[str(row["activity_type"]).strip()] = float(row["cost_coefficient"])
+
+    # 半期別実効重みを計算（実績データ部分）
+    known: Dict[str, Dict[str, float]] = {}   # {pid: {half: weight}}
+    for _, row in breakdown_df.iterrows():
+        pid  = str(row["product_id"]).strip()
+        half = str(row["half_period"]).strip()
+        w    = sum(float(row.get(c, 0)) * coeff.get(c, 0) for c in _ACTIVITY_RATE_COLS)
+        known.setdefault(pid, {})[half] = round(w, 4)
+
+    # forward-fill: 最終実績値で未来半期を埋める
+    result: Dict[Tuple[str, str], float] = {}
+    for pid, halfs in known.items():
+        sorted_halfs = sorted(halfs.keys())
+        for hp in _ALL_HALF_PERIODS:
+            if hp in halfs:
+                result[(pid, hp)] = halfs[hp]
+            elif hp > sorted_halfs[-1]:
+                result[(pid, hp)] = halfs[sorted_halfs[-1]]   # 最終実績値を保持
+            # 実績より古い半期はスキップ（fc_weight にフォールバック）
 
     return result
 
@@ -387,6 +444,7 @@ def run_calculation(
     competitor_yearly_df    : Optional[pd.DataFrame] = None,
     overlap_discount        : float = 0.0,
     doctor_overlap          : Optional[Dict[Tuple[str, str], float]] = None,
+    activity_weight_map     : Optional[Dict[Tuple[str, str], float]] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Returns
@@ -458,6 +516,7 @@ def run_calculation(
                                    else static["competitor_yearly"],
         doctor_overlap           = doctor_overlap or {},
         overlap_discount         = overlap_discount,
+        activity_weight_map      = activity_weight_map or {},
     )
 
     fte_df, _ = calculator.run_with_dynamic_new_product(
@@ -648,13 +707,15 @@ def main() -> None:
     # ── session_state 初期化 ──────────────────────────────────────────────
     if "defaults_loaded" not in st.session_state:
         defs = _load_editable_defaults()
-        st.session_state.td_df      = defs["target_doctors"].copy()
-        st.session_state.prod_df    = defs["products"].copy()
-        st.session_state.comp_df    = defs["competitors"].copy()
-        st.session_state.vf_df      = defs["visit_freq"].copy()
-        st.session_state.comp_yr_df = defs["competitor_yearly"].copy()
+        st.session_state.td_df           = defs["target_doctors"].copy()
+        st.session_state.prod_df         = defs["products"].copy()
+        st.session_state.comp_df         = defs["competitors"].copy()
+        st.session_state.vf_df           = defs["visit_freq"].copy()
+        st.session_state.comp_yr_df      = defs["competitor_yearly"].copy()
+        st.session_state.act_brkdn_df    = defs["activity_breakdown"].copy()
+        st.session_state.act_coeff_df    = defs["activity_cost_coeff"].copy()
         st.session_state.defaults_loaded = True
-        st.session_state.results  = None
+        st.session_state.results         = None
 
     # ── サイドバー: グローバル設定 ────────────────────────────────────────
     with st.sidebar:
@@ -723,21 +784,24 @@ def main() -> None:
         st.subheader("💾 CSV リセット")
         if st.button("⚠️ 全パラメータをCSVに戻す", use_container_width=True):
             defs = _load_editable_defaults()
-            st.session_state.td_df   = defs["target_doctors"].copy()
-            st.session_state.prod_df = defs["products"].copy()
-            st.session_state.comp_df = defs["competitors"].copy()
-            st.session_state.vf_df   = defs["visit_freq"].copy()
-            st.session_state.results = None
+            st.session_state.td_df           = defs["target_doctors"].copy()
+            st.session_state.prod_df         = defs["products"].copy()
+            st.session_state.comp_df         = defs["competitors"].copy()
+            st.session_state.vf_df           = defs["visit_freq"].copy()
+            st.session_state.act_brkdn_df    = defs["activity_breakdown"].copy()
+            st.session_state.act_coeff_df    = defs["activity_cost_coeff"].copy()
+            st.session_state.results         = None
             st.rerun()
 
     # ── パラメータ編集タブ ────────────────────────────────────────────────
-    tab_td, tab_vf, tab_comp, tab_comp_yr, tab_prod, tab_overlap = st.tabs([
+    tab_td, tab_vf, tab_comp, tab_comp_yr, tab_prod, tab_overlap, tab_act = st.tabs([
         "🩺 ターゲット医師数",
         "📅 訪問頻度（年度別）",
         "⚔️ 競合品スケジュール",
         "📊 直接競合数（年度別）",
         "🔬 品目設定",
         "🔗 医師重複分析",
+        "📋 活動構造（FC率/単独率）",
     ])
 
     # -------- Tab 1: ターゲット医師数 ----------------------------------------
@@ -1062,12 +1126,133 @@ def main() -> None:
                 else:
                     st.info("サイドバーで「共有医師の SC 転換率」を 0 より大きくするとプレビューが表示されます。")
 
+    # -------- Tab 7: 活動構造（FC率/単独率）------------------------------
+    with tab_act:
+        st.markdown("### 活動構造データ（FC率 / 単独率）")
+        st.caption(
+            "実績活動データ（2024/4〜2026/5）から半期ごとに集計した品目別の活動タイプ構成比。  \n"
+            "**実効FTE重み** = Σ(活動タイプ比率 × FTEコスト係数) として計算し、  \n"
+            "fc_sc_ratio.csv の fc_weight をこの実績ベース値で**上書き**する。"
+        )
+
+        act_tab1, act_tab2 = st.tabs(["📊 活動構造データ（半期別）", "⚙️ FTEコスト係数"])
+
+        # ---- 活動構造データ ----
+        with act_tab1:
+            if st.session_state.act_brkdn_df.empty:
+                st.warning("activity_breakdown.csv が見つかりません。")
+            else:
+                # 品目選択
+                ab_pids = sorted(st.session_state.act_brkdn_df["product_id"].unique())
+                sel_ab_pid = st.selectbox("品目を選択", ab_pids, key="sel_ab_pid")
+
+                sub_ab = st.session_state.act_brkdn_df[
+                    st.session_state.act_brkdn_df["product_id"] == sel_ab_pid
+                ].copy()
+
+                # 実効重みを計算して表示列に追加
+                coeff_now = dict(zip(
+                    st.session_state.act_coeff_df["activity_type"],
+                    st.session_state.act_coeff_df["cost_coefficient"].astype(float),
+                ))
+                sub_ab["実効FTE重み"] = (
+                    sum(sub_ab[c] * coeff_now.get(c, 0) for c in _ACTIVITY_RATE_COLS)
+                ).round(4)
+                sub_ab["FC率(単独+非単独)"] = (sub_ab["solo_fc"] + sub_ab["nonsolo_fc"]).round(4)
+                sub_ab["単独率(FC+SC+他)"] = (
+                    sub_ab["solo_fc"] + sub_ab["solo_sc"] + sub_ab["solo_spc"] + sub_ab["solo_other"]
+                ).round(4)
+
+                display_cols_ab = ["half_period","FC率(単独+非単独)","単独率(FC+SC+他)",
+                                   "solo_fc","solo_sc","solo_spc","solo_other",
+                                   "nonsolo_fc","nonsolo_sc","nonsolo_spc","nonsolo_other",
+                                   "実効FTE重み"]
+                st.dataframe(
+                    sub_ab[display_cols_ab],
+                    use_container_width=True, hide_index=True,
+                )
+
+                # 全品目の実効重み（FY2026-H1 時点）サマリ
+                with st.expander("▸ 全品目 実効FTE重みサマリ（FY2026-H1）", expanded=False):
+                    latest = st.session_state.act_brkdn_df[
+                        st.session_state.act_brkdn_df["half_period"] == "FY2026-H1"
+                    ].copy()
+                    latest["実効FTE重み"] = (
+                        sum(latest[c] * coeff_now.get(c, 0) for c in _ACTIVITY_RATE_COLS)
+                    ).round(4)
+                    latest["FC率"] = (latest["solo_fc"] + latest["nonsolo_fc"]).round(3)
+                    latest["単独率"] = (
+                        latest["solo_fc"]+latest["solo_sc"]+latest["solo_spc"]+latest["solo_other"]
+                    ).round(3)
+                    summary_ab = latest[["product_id","FC率","単独率","実効FTE重み"]].sort_values(
+                        "実効FTE重み", ascending=False
+                    )
+                    col_cfg_ab = {
+                        "実効FTE重み": st.column_config.ProgressColumn(
+                            "実効FTE重み", min_value=0.0, max_value=1.0, format="%.3f"),
+                        "FC率": st.column_config.ProgressColumn(
+                            "FC率", min_value=0.0, max_value=1.0, format="%.2%"),
+                        "単独率": st.column_config.ProgressColumn(
+                            "単独率", min_value=0.0, max_value=1.0, format="%.2%"),
+                    }
+                    st.dataframe(summary_ab, column_config=col_cfg_ab,
+                                 use_container_width=True, hide_index=True)
+
+        # ---- FTEコスト係数 ----
+        with act_tab2:
+            st.markdown("**活動タイプ別 FTEコスト係数**")
+            st.caption(
+                "各活動タイプが「単独FC訪問（=1.0）」に対してどの程度の FTE コストを持つかを設定。  \n"
+                "変更すると次回計算実行時から反映されます。"
+            )
+
+            col_cfg_coeff = {
+                "activity_type":    st.column_config.TextColumn("活動タイプ", disabled=True),
+                "cost_coefficient": st.column_config.NumberColumn(
+                    "FTEコスト係数", min_value=0.0, max_value=1.0, step=0.05, format="%.2f"),
+                "description":      st.column_config.TextColumn("説明", disabled=True),
+            }
+            edited_coeff = st.data_editor(
+                st.session_state.act_coeff_df,
+                column_config=col_cfg_coeff,
+                use_container_width=True,
+                hide_index=True,
+                key="editor_act_coeff",
+            )
+            st.session_state.act_coeff_df = edited_coeff
+
+            # 係数変更時のプレビュー
+            coeff_preview = dict(zip(
+                edited_coeff["activity_type"],
+                edited_coeff["cost_coefficient"].astype(float),
+            ))
+            if not st.session_state.act_brkdn_df.empty:
+                latest2 = st.session_state.act_brkdn_df[
+                    st.session_state.act_brkdn_df["half_period"] == "FY2026-H1"
+                ].copy()
+                latest2["実効FTE重み"] = (
+                    sum(latest2[c] * coeff_preview.get(c, 0) for c in _ACTIVITY_RATE_COLS)
+                ).round(4)
+                st.markdown("**現在の係数で算出した実効FTE重みプレビュー（FY2026-H1）**")
+                pv = latest2[["product_id","実効FTE重み"]].sort_values("実効FTE重み", ascending=False)
+                st.dataframe(
+                    pv,
+                    column_config={"実効FTE重み": st.column_config.ProgressColumn(
+                        "実効FTE重み", min_value=0.0, max_value=1.0, format="%.3f")},
+                    use_container_width=True, hide_index=True,
+                )
+
     st.divider()
 
     # ── 計算実行 ─────────────────────────────────────────────────────────
     if run_btn:
         with st.spinner("計算中… しばらくお待ちください"):
             try:
+                # 活動構造ベースの実効FTE重みを計算（半期×品目）
+                _act_weight_map = _compute_activity_weights(
+                    st.session_state.act_brkdn_df,
+                    st.session_state.act_coeff_df,
+                )
                 raw_s, cap_s, detail_df = run_calculation(
                     target_doctors_df       = st.session_state.td_df,
                     products_df             = st.session_state.prod_df,
@@ -1078,6 +1263,7 @@ def main() -> None:
                     competitor_yearly_df    = st.session_state.comp_yr_df,
                     overlap_discount        = overlap_discount,
                     doctor_overlap          = doctor_overlap,
+                    activity_weight_map     = _act_weight_map,
                 )
                 st.session_state.results = {
                     "raw":    raw_s,
