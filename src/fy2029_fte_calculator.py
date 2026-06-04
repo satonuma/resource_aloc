@@ -1717,6 +1717,13 @@ class FY2029FTECalculator:
         # activity_breakdown.csv + activity_cost_coeff.csv から算出した半期別実効FTE重み。
         # 設定時は fc_sc_ratio.csv 由来の fc_weight をこの値で上書きする。
         # 未設定 or 対象半期にデータなし → fc_weight にフォールバック。
+        bundling_supply: Optional[Dict[str, float]] = None,
+        # {product_id: supply_ratio}
+        # 品目の総活動のうち「他品目PCの訪問に乗っかって発生している割合」。
+        # bundling_analyzer.compute_bundling_supply() で activity_data.csv から算出する。
+        # FTE補正: effective_raw_calls = raw_calls × (1 − supply_ratio)
+        # 0.0 = 全て自前スケジュール（補正なし）
+        # 0.3 = 30%が他品目PCから供給 → raw_calls を 30% 削減してからFTE計算
     ) -> None:
         self.configs = {p.product_id: p for p in product_configs}
         self.target_doctor_calc = target_doctor_calc
@@ -1735,6 +1742,7 @@ class FY2029FTECalculator:
         self.doctor_overlap: Dict[Tuple[str, str], float] = doctor_overlap or {}
         self.overlap_discount: float = overlap_discount
         self.activity_weight_map: Dict[Tuple[str, str], float] = activity_weight_map or {}
+        self.bundling_supply: Dict[str, float] = bundling_supply or {}
 
     @property
     def target_months(self) -> List[str]:
@@ -1921,6 +1929,17 @@ class FY2029FTECalculator:
                     r_tgt, r_ach = freq, 1.0
                     w_tgt, w_ach = freq, 1.0
 
+                # ---- 抱き合わせ供給ファクター ----
+                # 他品目PCの訪問に乗っかって発生しているコール分は
+                # 自品目チームがスケジュールする必要がない（他品目MRが訪問する際に供給される）。
+                # → raw_calls（コール数）を削減してからfc_weightを乗じる。
+                # 例) supply_ratio=0.30 → raw_calls×0.70 だけが自チームの責任分
+                _supply_ratio = self.bundling_supply.get(pid, 0.0)
+                if _supply_ratio > 0.0:
+                    raw_calls *= max(0.0, 1.0 - _supply_ratio)
+                    # eff_freq も補正（表示・ログ用）
+                    eff_freq = raw_calls / total_target if total_target > 0 else 0.0
+
                 # FC/SC重みを適用（SCが多い品目ほど必要コールを割引）
                 required_calls = raw_calls * fc_weight
 
@@ -1971,9 +1990,10 @@ class FY2029FTECalculator:
                     "fc_ratio":          round(fc_ratio, 3),
                     "fc_weight":         round(fc_weight, 3),
                     "visit_frequency":   round(eff_freq, 3),
-                    "required_calls":    round(required_calls, 1),
-                    "overlap_factor":    round(overlap_factor, 4),
-                    "base_fte":          base_fte,
+                    "required_calls":       round(required_calls, 1),
+                    "overlap_factor":       round(overlap_factor, 4),
+                    "bundling_supply_ratio": round(_supply_ratio, 4),
+                    "base_fte":             base_fte,
                 })
 
         # ---- Pass 2: required_fte = base_fte（MR FTE = 全活動FTE、デジタルは独立分析）----

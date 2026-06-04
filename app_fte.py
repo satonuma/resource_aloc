@@ -37,6 +37,12 @@ from fy2029_fte_calculator import (  # noqa: E402
     month_to_half,
     normalize_fte_roi_weighted,
 )
+from bundling_analyzer import (  # noqa: E402
+    compute_bundling_supply,
+    compute_bundling_by_half,
+    compute_bundling_pairs,
+    DEFAULT_COL_MAP as _BUNDLING_DEFAULT_COL_MAP,
+)
 
 # ── 定数 ──────────────────────────────────────────────────────────────────
 ALL_MONTHS = sum([get_fy_months(fy) for fy in range(2026, 2036)], [])
@@ -217,6 +223,59 @@ def _compute_doctor_overlap() -> Dict[Tuple[str, str], float]:
             result[(pid, "W")] = result.get((pid, "R"), 0.0)
 
     return result
+
+
+@st.cache_data(show_spinner=False)
+def _load_raw_activity() -> pd.DataFrame:
+    """
+    activity_data.csv を集計せずにそのまま読み込む（抱き合わせ分析用）。
+    集計済み版（_load_static の activity_data）とは別に保持する。
+    """
+    p = INPUT_DIR / "activity_data.csv"
+    if not p.exists():
+        return pd.DataFrame()
+    return pd.read_csv(p, low_memory=False)
+
+
+@st.cache_data(show_spinner=False)
+def _compute_bundling_from_activity(
+    col_map_json: str,   # JSON 文字列でキャッシュキーに使う
+) -> Tuple[Dict[str, float], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    activity_data.csv から抱き合わせ供給率を計算する。
+
+    Returns
+    -------
+    (supply_dict, detail_df, by_half_df, pairs_df)
+      supply_dict : {product_code: supply_ratio}  FTE 計算に渡す
+      detail_df   : 品目別集計
+      by_half_df  : 半期別集計
+      pairs_df    : ペア別共同訪問回数（上位20）
+    """
+    import json
+    col_map = json.loads(col_map_json)
+
+    raw_df = _load_raw_activity()
+    if raw_df.empty:
+        return {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    try:
+        supply_dict, detail_df = compute_bundling_supply(raw_df, col_map)
+    except ValueError:
+        return {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    # 半期別・ペア別は表示用（エラーは無視）
+    try:
+        by_half_df = compute_bundling_by_half(raw_df, col_map)
+    except Exception:
+        by_half_df = pd.DataFrame()
+
+    try:
+        pairs_df = compute_bundling_pairs(raw_df, col_map, top_n=20)
+    except Exception:
+        pairs_df = pd.DataFrame()
+
+    return supply_dict, detail_df, by_half_df, pairs_df
 
 
 _ACTIVITY_RATE_COLS = [
@@ -445,6 +504,7 @@ def run_calculation(
     overlap_discount        : float = 0.0,
     doctor_overlap          : Optional[Dict[Tuple[str, str], float]] = None,
     activity_weight_map     : Optional[Dict[Tuple[str, str], float]] = None,
+    bundling_supply         : Optional[Dict[str, float]] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Returns
@@ -517,6 +577,7 @@ def run_calculation(
         doctor_overlap           = doctor_overlap or {},
         overlap_discount         = overlap_discount,
         activity_weight_map      = activity_weight_map or {},
+        bundling_supply          = bundling_supply or {},
     )
 
     fte_df, _ = calculator.run_with_dynamic_new_product(
@@ -716,6 +777,8 @@ def main() -> None:
         st.session_state.act_coeff_df    = defs["activity_cost_coeff"].copy()
         st.session_state.defaults_loaded = True
         st.session_state.results         = None
+        # 抱き合わせ列名マッピング（初期値はデフォルト）
+        st.session_state.bundling_col_map = dict(_BUNDLING_DEFAULT_COL_MAP)
 
     # ── サイドバー: グローバル設定 ────────────────────────────────────────
     with st.sidebar:
@@ -746,6 +809,29 @@ def main() -> None:
                  "例: 0.05 → 2 品発売済みなら +10%（1+2×0.05=1.10）",
         )
         st.caption(f"2 品発売済み時: ×{1 + 2*cc_factor:.2f}  /  3 品: ×{1 + 3*cc_factor:.2f}")
+
+        st.subheader("抱き合わせ活動ディスカウント")
+        import json as _json
+        _col_map_json = _json.dumps(st.session_state.get("bundling_col_map", _BUNDLING_DEFAULT_COL_MAP))
+        _bundling_supply_dict, _bundling_detail_df, _bundling_half_df, _bundling_pairs_df = \
+            _compute_bundling_from_activity(_col_map_json)
+        bundling_available = len(_bundling_supply_dict) > 0
+        if not bundling_available:
+            st.caption("⚠️ activity_data.csv が見つからないか、訪問記録IDがありません。")
+            bundling_enabled = False
+        else:
+            bundling_enabled = st.toggle(
+                "抱き合わせ供給率を FTE に反映する",
+                value=False,
+                help="活動データから計算した「他品目PCに乗っかっている割合」を使い、\n"
+                     "その分だけ必要コール数を削減してFTEを計算します。\n"
+                     "供給率=30% → raw_calls × 0.70 として計算",
+            )
+            if bundling_enabled and _bundling_detail_df is not None and not _bundling_detail_df.empty:
+                top5 = _bundling_detail_df.sort_values("供給率", ascending=False).head(5)
+                lines = [f"{r['品目コード']}: {r['供給率']:.0%}" for _, r in top5.iterrows()]
+                st.caption("供給率トップ5\n" + "  \n".join(lines))
+        bundling_supply = _bundling_supply_dict if bundling_enabled else {}
 
         st.subheader("医師重複ディスカウント")
         doctor_overlap = _compute_doctor_overlap()
@@ -794,7 +880,7 @@ def main() -> None:
             st.rerun()
 
     # ── パラメータ編集タブ ────────────────────────────────────────────────
-    tab_td, tab_vf, tab_comp, tab_comp_yr, tab_prod, tab_overlap, tab_act = st.tabs([
+    tab_td, tab_vf, tab_comp, tab_comp_yr, tab_prod, tab_overlap, tab_act, tab_bundle = st.tabs([
         "🩺 ターゲット医師数",
         "📅 訪問頻度（年度別）",
         "⚔️ 競合品スケジュール",
@@ -802,6 +888,7 @@ def main() -> None:
         "🔬 品目設定",
         "🔗 医師重複分析",
         "📋 活動構造（FC率/単独率）",
+        "🔀 抱き合わせ分析",
     ])
 
     # -------- Tab 1: ターゲット医師数 ----------------------------------------
@@ -1242,6 +1329,147 @@ def main() -> None:
                     use_container_width=True, hide_index=True,
                 )
 
+    # -------- Tab 8: 抱き合わせ分析 ----------------------------------------
+    with tab_bundle:
+        st.markdown("### 🔀 抱き合わせ活動分析")
+        st.caption(
+            "activity_data.csv の **訪問記録ID** で同一訪問を識別し、  \n"
+            "品目ごとに「他品目PC訪問に乗っかっている割合（供給率）」を計算します。  \n"
+            "供給率が高い品目ほど、他品目の訪問スケジュールに依存して活動されています。"
+        )
+
+        # ── 列名設定 ─────────────────────────────────────────────────────
+        with st.expander("⚙️ 列名マッピング設定", expanded=False):
+            st.caption(
+                "activity_data.csv の実際の列名と異なる場合はここで修正してください。  \n"
+                "変更後はキャッシュをクリア（ページリロード）してください。"
+            )
+            _cm = st.session_state.bundling_col_map
+            col1, col2 = st.columns(2)
+            with col1:
+                _cm["visit_id"]       = st.text_input("訪問ID列",     value=_cm.get("visit_id", "訪問記録ID"))
+                _cm["product_code"]   = st.text_input("品目コード列", value=_cm.get("product_code", "品目コード"))
+            with col2:
+                _cm["activity_class"] = st.text_input("活動大別列",   value=_cm.get("activity_class", "活動大別"))
+                _cm["date"]           = st.text_input("日付列",       value=_cm.get("date", "日付"))
+            st.session_state.bundling_col_map = _cm
+
+            st.markdown("**PCの値（カンマ区切りで複数指定可）**")
+            pc_raw = st.text_input("PC値", value="PC", key="bnd_pc_vals")
+            sc_raw = st.text_input("SC値", value="SC", key="bnd_sc_vals")
+            spc_raw = st.text_input("SPC値", value="SPC", key="bnd_spc_vals")
+
+        if not bundling_available:
+            st.warning(
+                "`data/input/activity_data.csv` が見つからないか、訪問記録ID 列がありません。  \n"
+                "列名マッピング設定を確認してください。",
+                icon="⚠️",
+            )
+        else:
+            bnd_tab1, bnd_tab2, bnd_tab3 = st.tabs([
+                "📊 品目別 供給率",
+                "📈 半期別トレンド",
+                "🔗 品目ペア分析",
+            ])
+
+            with bnd_tab1:
+                st.markdown("**品目別 抱き合わせ供給率（全期間集計）**")
+                st.caption(
+                    "**供給率** = (SCまたはSPCとして出現した回数) ÷ 総活動回数  \n"
+                    "供給率 30% → その品目の訪問の 30% は他品目PCの訪問内で実施されている"
+                )
+                if _bundling_detail_df is not None and not _bundling_detail_df.empty:
+                    disp = _bundling_detail_df.sort_values("供給率", ascending=False).reset_index(drop=True)
+                    col_cfg_bnd = {
+                        "供給率": st.column_config.ProgressColumn(
+                            "供給率", min_value=0.0, max_value=1.0, format="%.1%"),
+                        "PC回数":   st.column_config.NumberColumn("PC回数",  format="%d"),
+                        "SC回数":   st.column_config.NumberColumn("SC回数",  format="%d"),
+                        "SPC回数":  st.column_config.NumberColumn("SPC回数", format="%d"),
+                        "供給回数": st.column_config.NumberColumn("供給回数（SC/SPC かつ非PC）", format="%d"),
+                        "総活動回数": st.column_config.NumberColumn("総活動回数", format="%d"),
+                    }
+                    st.dataframe(disp, column_config=col_cfg_bnd,
+                                 use_container_width=True, hide_index=True)
+
+                    # FTE への影響プレビュー
+                    if bundling_enabled:
+                        st.markdown("---")
+                        st.markdown("**FTE 削減プレビュー（供給率反映 ON 時）**")
+                        st.caption("供給率分だけ raw_calls が削減されます。activity_weight_map と組み合わせた実効削減率の目安です。")
+                        prev_rows = []
+                        for _, row in disp.iterrows():
+                            sr = float(row["供給率"])
+                            prev_rows.append({
+                                "品目コード": row["品目コード"],
+                                "供給率":     sr,
+                                "raw_calls 削減率": sr,
+                                "FTE 係数": round(1.0 - sr, 3),
+                            })
+                        prev_bnd = pd.DataFrame(prev_rows)
+                        st.dataframe(
+                            prev_bnd,
+                            column_config={
+                                "供給率":         st.column_config.ProgressColumn("供給率",         min_value=0, max_value=1, format="%.1%"),
+                                "raw_calls 削減率": st.column_config.ProgressColumn("raw_calls 削減率", min_value=0, max_value=1, format="%.1%"),
+                                "FTE 係数":       st.column_config.ProgressColumn("FTE 係数",       min_value=0, max_value=1, format="%.3f"),
+                            },
+                            use_container_width=True, hide_index=True,
+                        )
+                    else:
+                        st.info("サイドバーで「抱き合わせ供給率を FTE に反映する」をONにすると FTE 削減プレビューが表示されます。")
+
+            with bnd_tab2:
+                st.markdown("**半期別 供給率トレンド**")
+                if _bundling_half_df is not None and not _bundling_half_df.empty:
+                    pids_bnd = sorted(_bundling_half_df["品目コード"].unique())
+                    sel_pid_bnd = st.multiselect(
+                        "品目を選択", pids_bnd,
+                        default=pids_bnd[:min(5, len(pids_bnd))],
+                        key="bnd_pid_sel",
+                    )
+                    if sel_pid_bnd:
+                        sub_half = _bundling_half_df[_bundling_half_df["品目コード"].isin(sel_pid_bnd)]
+                        fig_half = go.Figure()
+                        for pid in sel_pid_bnd:
+                            s = sub_half[sub_half["品目コード"] == pid].sort_values("half_period")
+                            fig_half.add_scatter(
+                                x=s["half_period"], y=s["供給率"],
+                                mode="lines+markers", name=pid,
+                            )
+                        fig_half.update_layout(
+                            xaxis_title="半期", yaxis_title="供給率",
+                            yaxis=dict(tickformat=".0%", range=[0, 1]),
+                            height=380, margin=dict(t=20, b=40),
+                            legend=dict(orientation="h", y=1.05),
+                        )
+                        st.plotly_chart(fig_half, use_container_width=True)
+
+                        with st.expander("▸ 半期別テーブル", expanded=False):
+                            st.dataframe(
+                                sub_half.sort_values(["品目コード", "half_period"]),
+                                use_container_width=True, hide_index=True,
+                            )
+                else:
+                    st.info("日付列が有効であれば半期別トレンドが表示されます。")
+
+            with bnd_tab3:
+                st.markdown("**品目ペア別 共同訪問回数（上位20）**")
+                st.caption(
+                    "primary_product が PC のときに secondary_product が同時に SC/SPC として出現した回数。  \n"
+                    "**secondary に占める割合** = secondary の全活動に対する共同訪問の比率"
+                )
+                if _bundling_pairs_df is not None and not _bundling_pairs_df.empty:
+                    col_cfg_pair = {
+                        "secondary に占める割合": st.column_config.ProgressColumn(
+                            "secondary 側の供給率", min_value=0.0, max_value=1.0, format="%.1%"),
+                        "共同訪問回数": st.column_config.NumberColumn("共同訪問回数", format="%d"),
+                    }
+                    st.dataframe(_bundling_pairs_df, column_config=col_cfg_pair,
+                                 use_container_width=True, hide_index=True)
+                else:
+                    st.info("データがありません。")
+
     st.divider()
 
     # ── 計算実行 ─────────────────────────────────────────────────────────
@@ -1264,6 +1492,7 @@ def main() -> None:
                     overlap_discount        = overlap_discount,
                     doctor_overlap          = doctor_overlap,
                     activity_weight_map     = _act_weight_map,
+                    bundling_supply         = bundling_supply,
                 )
                 st.session_state.results = {
                     "raw":    raw_s,
