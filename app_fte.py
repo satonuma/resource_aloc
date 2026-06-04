@@ -226,12 +226,13 @@ def _compute_doctor_overlap() -> Dict[Tuple[str, str], float]:
 
 
 @st.cache_data(show_spinner=False)
-def _load_raw_activity() -> pd.DataFrame:
+def _load_raw_activity(filename: str = "visit_records.csv") -> pd.DataFrame:
     """
-    activity_data.csv を集計せずにそのまま読み込む（抱き合わせ分析用）。
-    集計済み版（_load_static の activity_data）とは別に保持する。
+    訪問レベルの生データを読み込む（抱き合わせ分析専用）。
+    デフォルトは visit_records.csv。
+    activity_data.csv は集計済み形式のため別ファイルを使用する。
     """
-    p = INPUT_DIR / "activity_data.csv"
+    p = INPUT_DIR / filename
     if not p.exists():
         return pd.DataFrame()
     return pd.read_csv(p, low_memory=False)
@@ -240,9 +241,10 @@ def _load_raw_activity() -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def _compute_bundling_from_activity(
     col_map_json: str,   # JSON 文字列でキャッシュキーに使う
+    filename: str = "visit_records.csv",
 ) -> Tuple[Dict[str, float], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    activity_data.csv から抱き合わせ供給率を計算する。
+    訪問レベルデータから抱き合わせ供給率を計算する。
 
     Returns
     -------
@@ -255,7 +257,7 @@ def _compute_bundling_from_activity(
     import json
     col_map = json.loads(col_map_json)
 
-    raw_df = _load_raw_activity()
+    raw_df = _load_raw_activity(filename)
     if raw_df.empty:
         return {}, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
@@ -777,8 +779,9 @@ def main() -> None:
         st.session_state.act_coeff_df    = defs["activity_cost_coeff"].copy()
         st.session_state.defaults_loaded = True
         st.session_state.results         = None
-        # 抱き合わせ列名マッピング（初期値はデフォルト）
-        st.session_state.bundling_col_map = dict(_BUNDLING_DEFAULT_COL_MAP)
+        # 抱き合わせ列名マッピング・ファイル名（初期値はデフォルト）
+        st.session_state.bundling_col_map  = dict(_BUNDLING_DEFAULT_COL_MAP)
+        st.session_state.bundling_filename = "visit_records.csv"
 
     # ── サイドバー: グローバル設定 ────────────────────────────────────────
     with st.sidebar:
@@ -812,9 +815,10 @@ def main() -> None:
 
         st.subheader("抱き合わせ活動ディスカウント")
         import json as _json
-        _col_map_json = _json.dumps(st.session_state.get("bundling_col_map", _BUNDLING_DEFAULT_COL_MAP))
+        _col_map_json   = _json.dumps(st.session_state.get("bundling_col_map", _BUNDLING_DEFAULT_COL_MAP))
+        _bundling_file  = st.session_state.get("bundling_filename", "visit_records.csv")
         _bundling_supply_dict, _bundling_detail_df, _bundling_half_df, _bundling_pairs_df = \
-            _compute_bundling_from_activity(_col_map_json)
+            _compute_bundling_from_activity(_col_map_json, _bundling_file)
         bundling_available = len(_bundling_supply_dict) > 0
         if not bundling_available:
             st.caption("⚠️ activity_data.csv が見つからないか、訪問記録IDがありません。")
@@ -1338,33 +1342,64 @@ def main() -> None:
             "供給率が高い品目ほど、他品目の訪問スケジュールに依存して活動されています。"
         )
 
-        # ── 列名設定 ─────────────────────────────────────────────────────
-        with st.expander("⚙️ 列名マッピング設定", expanded=False):
+        # ── ファイル・列名設定 ────────────────────────────────────────────
+        with st.expander("⚙️ データファイル・列名設定", expanded=not bundling_available):
             st.caption(
-                "activity_data.csv の実際の列名と異なる場合はここで修正してください。  \n"
-                "変更後はキャッシュをクリア（ページリロード）してください。"
+                "訪問レベルの生データ（訪問記録ID・活動大別を含む CSV）を指定してください。  \n"
+                "`activity_data.csv` は集計済みのため**別ファイル**が必要です。"
             )
+
+            _bundling_file_input = st.text_input(
+                "ファイル名（data/input/ 以下）",
+                value=st.session_state.get("bundling_filename", "visit_records.csv"),
+                help="例: visit_records.csv　実データのファイル名を入力してください。",
+                key="bnd_filename_input",
+            )
+            st.session_state["bundling_filename"] = _bundling_file_input
+
+            st.markdown("**列名マッピング**")
             _cm = st.session_state.bundling_col_map
             col1, col2 = st.columns(2)
             with col1:
-                _cm["visit_id"]       = st.text_input("訪問ID列",     value=_cm.get("visit_id", "訪問記録ID"))
-                _cm["product_code"]   = st.text_input("品目コード列", value=_cm.get("product_code", "品目コード"))
+                _cm["visit_id"]       = st.text_input("訪問ID列",     value=_cm.get("visit_id",       "訪問記録ID"),  key="bnd_col_visit")
+                _cm["product_code"]   = st.text_input("品目コード列", value=_cm.get("product_code",   "品目コード"),  key="bnd_col_prod")
             with col2:
-                _cm["activity_class"] = st.text_input("活動大別列",   value=_cm.get("activity_class", "活動大別"))
-                _cm["date"]           = st.text_input("日付列",       value=_cm.get("date", "日付"))
+                _cm["activity_class"] = st.text_input("活動大別列",   value=_cm.get("activity_class", "活動大別"),   key="bnd_col_act")
+                _cm["date"]           = st.text_input("日付列",       value=_cm.get("date",           "日付"),       key="bnd_col_date")
             st.session_state.bundling_col_map = _cm
 
-            st.markdown("**PCの値（カンマ区切りで複数指定可）**")
-            pc_raw = st.text_input("PC値", value="PC", key="bnd_pc_vals")
-            sc_raw = st.text_input("SC値", value="SC", key="bnd_sc_vals")
+            st.markdown("**活動大別の値**")
+            pc_raw  = st.text_input("PC値",  value="PC",  key="bnd_pc_vals")
+            sc_raw  = st.text_input("SC値",  value="SC",  key="bnd_sc_vals")
             spc_raw = st.text_input("SPC値", value="SPC", key="bnd_spc_vals")
 
-        if not bundling_available:
-            st.warning(
-                "`data/input/activity_data.csv` が見つからないか、訪問記録ID 列がありません。  \n"
-                "列名マッピング設定を確認してください。",
-                icon="⚠️",
+            st.markdown("**期待するファイル形式（例）**")
+            st.code(
+                "施設ID,施設名,医師ID,医師名,日付,活動種別,活動大別,品目名,品目コード,訪問記録ID\n"
+                "H001,○○病院,D001,○○先生,2026-04-01,Detail,PC,ENT品,ENT,V0001\n"
+                "H001,○○病院,D001,○○先生,2026-04-01,Detail,SPC,REV品,REV,V0001\n"
+                "H002,△△クリニック,D002,△△先生,2026-04-02,Detail,PC,ENT品,ENT,V0002",
+                language="text",
             )
+            st.caption(
+                "同じ **訪問記録ID** を持つ行が「1回の訪問」。  \n"
+                "上例では V0001 の訪問に ENT(PC) と REV(SPC) が含まれる → REV の供給回数 +1"
+            )
+
+        if not bundling_available:
+            _bfile_path = INPUT_DIR / st.session_state.get("bundling_filename", "visit_records.csv")
+            if not _bfile_path.exists():
+                st.warning(
+                    f"`data/input/{_bfile_path.name}` が見つかりません。  \n"
+                    "上の設定からファイル名を確認するか、ファイルを配置してください。",
+                    icon="⚠️",
+                )
+            else:
+                st.warning(
+                    f"`{_bfile_path.name}` は存在しますが、指定した列が見つかりません。  \n"
+                    "列名マッピングを確認してください。",
+                    icon="⚠️",
+                )
         else:
             bnd_tab1, bnd_tab2, bnd_tab3 = st.tabs([
                 "📊 品目別 供給率",

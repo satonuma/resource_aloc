@@ -26,6 +26,7 @@ data/input/delivery_data.csv
 data/input/digital_act.csv
 data/input/target_doctor_list.csv
 data/input/current_activities.csv
+data/input/visit_records.csv
 
 # アウトプット（再生成可能）
 data/output/
