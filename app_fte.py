@@ -821,7 +821,11 @@ def main() -> None:
             _compute_bundling_from_activity(_col_map_json, _bundling_file)
         bundling_available = len(_bundling_supply_dict) > 0
         if not bundling_available:
-            st.caption("⚠️ activity_data.csv が見つからないか、訪問記録IDがありません。")
+            _bfname = st.session_state.get("bundling_filename", "visit_records.csv")
+            if not (INPUT_DIR / _bfname).exists():
+                st.caption(f"⚠️ `{_bfname}` が未配置です。🔀タブで設定してください。")
+            else:
+                st.caption(f"⚠️ `{_bfname}` の列名が一致しません。🔀タブで確認してください。")
             bundling_enabled = False
         else:
             bundling_enabled = st.toggle(
