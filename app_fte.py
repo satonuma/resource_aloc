@@ -782,6 +782,10 @@ def main() -> None:
         # 抱き合わせ列名マッピング・ファイル名（初期値はデフォルト）
         st.session_state.bundling_col_map  = dict(_BUNDLING_DEFAULT_COL_MAP)
         st.session_state.bundling_filename = "visit_records.csv"
+        # コール種別 値マッピング（初期値）
+        st.session_state.bundling_pc_vals  = "Best 1 on 1,ディテールコール（1st）/JOBU：新規"
+        st.session_state.bundling_sc_vals  = "ディテールコール（2nd）/JOBU：継続"
+        st.session_state.bundling_spc_vals = "サポートコール"
 
     # ── サイドバー: グローバル設定 ────────────────────────────────────────
     with st.sidebar:
@@ -1372,22 +1376,30 @@ def main() -> None:
                 _cm["date"]           = st.text_input("日付列",       value=_cm.get("date",           "日付"),       key="bnd_col_date")
             st.session_state.bundling_col_map = _cm
 
-            st.markdown("**活動大別の値**")
-            pc_raw  = st.text_input("PC値",  value="PC",  key="bnd_pc_vals")
-            sc_raw  = st.text_input("SC値",  value="SC",  key="bnd_sc_vals")
-            spc_raw = st.text_input("SPC値", value="SPC", key="bnd_spc_vals")
+            st.markdown("**コール種別 → FC/SC/SPC 値マッピング（カンマ区切りで複数可）**")
+            pc_raw  = st.text_input("FC値（=PC）",  value=st.session_state.get("bundling_pc_vals",  "Best 1 on 1,ディテールコール（1st）/JOBU：新規"), key="bnd_pc_vals")
+            sc_raw  = st.text_input("SC値",          value=st.session_state.get("bundling_sc_vals",  "ディテールコール（2nd）/JOBU：継続"),              key="bnd_sc_vals")
+            spc_raw = st.text_input("SPC値",         value=st.session_state.get("bundling_spc_vals", "サポートコール"),                                  key="bnd_spc_vals")
+            st.session_state.bundling_pc_vals  = pc_raw
+            st.session_state.bundling_sc_vals  = sc_raw
+            st.session_state.bundling_spc_vals = spc_raw
 
-            st.markdown("**期待するファイル形式（例）**")
+            st.markdown("**期待するファイル形式（実データ列名）**")
             st.code(
-                "施設ID,施設名,医師ID,医師名,日付,活動種別,活動大別,品目名,品目コード,訪問記録ID\n"
-                "H001,○○病院,D001,○○先生,2026-04-01,Detail,PC,ENT品,ENT,V0001\n"
-                "H001,○○病院,D001,○○先生,2026-04-01,Detail,SPC,REV品,REV,V0001\n"
-                "H002,△△クリニック,D002,△△先生,2026-04-02,Detail,PC,ENT品,ENT,V0002",
+                "施設(本院に合算)コード,施設(本院に合算),施設(全施設)コード,施設(全施設),"
+                "医師コメディカルDCFコード,医師コメディカル指名コード,医師コメディカル指名,"
+                "RWフラグ,品目(活動)コード,品目(活動),効能,活動日,活動種別,"
+                "1way2way区分,訪問記録No,コール種別\n"
+                "F0001,○○病院,F0001A,○○病院本館,DCF001,D001,山田先生,R,"
+                "ENT,エンタービ,主効能A,2026/04/01,ディテール,2wayフィジカル,V0000001,Best 1 on 1\n"
+                "F0001,○○病院,F0001A,○○病院本館,DCF001,D001,山田先生,R,"
+                "REV,レビュー,主効能A,2026/04/01,ディテール,2wayフィジカル,V0000001,サポートコール",
                 language="text",
             )
             st.caption(
-                "同じ **訪問記録ID** を持つ行が「1回の訪問」。  \n"
-                "上例では V0001 の訪問に ENT(PC) と REV(SPC) が含まれる → REV の供給回数 +1"
+                "同じ **訪問記録No** を持つ行が「1回の訪問」。  \n"
+                "上例では V0000001 の訪問に ENT(FC) と REV(SPC) が含まれる → REV の供給回数 +1  \n"
+                "**1way** の行は FTE 対象外として自動除外されます。"
             )
 
         if not bundling_available:
