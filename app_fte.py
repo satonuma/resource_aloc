@@ -93,7 +93,7 @@ def _load_static() -> dict:
     """頻繁に変えないデータを一度だけ読む。"""
     def _read(name: str) -> pd.DataFrame:
         p = INPUT_DIR / name
-        return pd.read_csv(p) if p.exists() else pd.DataFrame()
+        return pd.read_csv(p, encoding="utf-8-sig") if p.exists() else pd.DataFrame()
 
     act_raw = _read("activity_data.csv")
     if "activity_date" in act_raw.columns and "activity_ym" not in act_raw.columns:
@@ -163,7 +163,7 @@ def _load_editable_defaults() -> dict:
     """編集可能データのデフォルト値を CSV から読む（キャッシュなし）。"""
     def _read(name: str) -> pd.DataFrame:
         p = INPUT_DIR / name
-        return pd.read_csv(p) if p.exists() else pd.DataFrame()
+        return pd.read_csv(p, encoding="utf-8-sig") if p.exists() else pd.DataFrame()
 
     return dict(
         target_doctors      = _read("target_doctors.csv"),
@@ -235,7 +235,7 @@ def _load_raw_activity(filename: str = "visit_records.csv") -> pd.DataFrame:
     p = INPUT_DIR / filename
     if not p.exists():
         return pd.DataFrame()
-    return pd.read_csv(p, low_memory=False)
+    return pd.read_csv(p, encoding="utf-8-sig", low_memory=False)
 
 
 @st.cache_data(show_spinner=False)
