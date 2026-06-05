@@ -771,7 +771,11 @@ def main() -> None:
     if "defaults_loaded" not in st.session_state:
         defs = _load_editable_defaults()
         st.session_state.td_df           = defs["target_doctors"].copy()
-        st.session_state.prod_df         = defs["products"].copy()
+        _prod = defs["products"].copy()
+        # activity_code 列: NaN → "" で str 型に統一（data_editor の TextColumn 互換）
+        if "activity_code" in _prod.columns:
+            _prod["activity_code"] = _prod["activity_code"].fillna("").astype(str).str.strip()
+        st.session_state.prod_df         = _prod
         st.session_state.comp_df         = defs["competitors"].copy()
         st.session_state.vf_df           = defs["visit_freq"].copy()
         st.session_state.comp_yr_df      = defs["competitor_yearly"].copy()
@@ -883,7 +887,10 @@ def main() -> None:
         if st.button("⚠️ 全パラメータをCSVに戻す", use_container_width=True):
             defs = _load_editable_defaults()
             st.session_state.td_df           = defs["target_doctors"].copy()
-            st.session_state.prod_df         = defs["products"].copy()
+            _prod_r = defs["products"].copy()
+            if "activity_code" in _prod_r.columns:
+                _prod_r["activity_code"] = _prod_r["activity_code"].fillna("").astype(str).str.strip()
+            st.session_state.prod_df         = _prod_r
             st.session_state.comp_df         = defs["competitors"].copy()
             st.session_state.vf_df           = defs["visit_freq"].copy()
             st.session_state.act_brkdn_df    = defs["activity_breakdown"].copy()
@@ -1114,20 +1121,26 @@ def main() -> None:
 
         # 表示列を絞る（全列だと多すぎる）
         display_cols = [
-            "product_id", "area", "is_new", "launch_ym", "loe_ym",
+            "product_id", "activity_code", "area", "is_new", "launch_ym", "loe_ym",
             "post_loe_factor", "mindscape_target_pct", "max_fte",
         ]
         prod_disp = st.session_state.prod_df[[c for c in display_cols if c in st.session_state.prod_df.columns]].copy()
 
         col_cfg_prod = {
-            "product_id":           st.column_config.TextColumn("品目 ID",     disabled=True, width="small"),
-            "area":                 st.column_config.SelectboxColumn("エリア",  options=["CS","PS遺伝","PS血液"], width="small"),
+            "product_id":           st.column_config.TextColumn("品目 ID",          disabled=True, width="small"),
+            "activity_code":        st.column_config.TextColumn(
+                "活動コード",
+                help="visit_records.csv の 品目(活動)コード と一致させる（例: 11155）。"
+                     "抱き合わせ分析の供給率を FTE に反映するために使用。空欄=反映しない",
+                width="small",
+            ),
+            "area":                 st.column_config.SelectboxColumn("エリア",       options=["CS","PS遺伝","PS血液"], width="small"),
             "is_new":               st.column_config.CheckboxColumn("新薬"),
-            "launch_ym":            st.column_config.TextColumn("発売年月",     validate=r"^\d{4}-\d{2}$"),
-            "loe_ym":               st.column_config.TextColumn("LOE 年月",     validate=r"^\d{4}-\d{2}$"),
-            "post_loe_factor":      st.column_config.NumberColumn("LOE後係数",  min_value=0.0, max_value=1.0, step=0.05, format="%.2f"),
-            "mindscape_target_pct": st.column_config.NumberColumn("Mindscape%", min_value=0,   max_value=100, step=5),
-            "max_fte":              st.column_config.NumberColumn("FTE上限",    min_value=0.0,  step=5.0,     format="%.0f",
+            "launch_ym":            st.column_config.TextColumn("発売年月",          validate=r"^\d{4}-\d{2}$"),
+            "loe_ym":               st.column_config.TextColumn("LOE 年月",          validate=r"^\d{4}-\d{2}$"),
+            "post_loe_factor":      st.column_config.NumberColumn("LOE後係数",       min_value=0.0, max_value=1.0, step=0.05, format="%.2f"),
+            "mindscape_target_pct": st.column_config.NumberColumn("Mindscape%",      min_value=0,   max_value=100, step=5),
+            "max_fte":              st.column_config.NumberColumn("FTE上限",         min_value=0.0,  step=5.0,     format="%.0f",
                                                                    help="空欄=上限なし"),
         }
         edited_prod_disp = st.data_editor(
@@ -1532,6 +1545,23 @@ def main() -> None:
                     st.session_state.act_brkdn_df,
                     st.session_state.act_coeff_df,
                 )
+
+                # 抱き合わせ供給率: activity_code → product_id に変換
+                # visit_records.csv の 品目(活動)コード は数値コード（例: 11155）の場合があるため
+                # products.csv の activity_code 列で product_id にマッピングする
+                _bundling_supply_mapped = bundling_supply or {}
+                if _bundling_supply_mapped and "activity_code" in st.session_state.prod_df.columns:
+                    _code_to_pid = {
+                        str(r["activity_code"]).strip(): str(r["product_id"]).strip()
+                        for _, r in st.session_state.prod_df.iterrows()
+                        if str(r.get("activity_code", "")).strip() not in ("", "nan", "None")
+                    }
+                    if _code_to_pid:
+                        _bundling_supply_mapped = {
+                            _code_to_pid.get(k, k): v
+                            for k, v in _bundling_supply_mapped.items()
+                        }
+
                 raw_s, cap_s, detail_df = run_calculation(
                     target_doctors_df       = st.session_state.td_df,
                     products_df             = st.session_state.prod_df,
@@ -1543,7 +1573,7 @@ def main() -> None:
                     overlap_discount        = overlap_discount,
                     doctor_overlap          = doctor_overlap,
                     activity_weight_map     = _act_weight_map,
-                    bundling_supply         = bundling_supply,
+                    bundling_supply         = _bundling_supply_mapped,
                 )
                 st.session_state.results = {
                     "raw":    raw_s,
